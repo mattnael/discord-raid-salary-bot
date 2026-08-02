@@ -107,10 +107,10 @@ try { db.exec("ALTER TABLE parties ADD COLUMN co_host_id TEXT DEFAULT NULL;"); }
 const DEFAULT_ROLES = [
     { code: 'FU', name: 'FU', slots: 2, emoji: '🔴' },
     { code: 'PR', name: 'PR', slots: 1, emoji: '🏹' },
-    { code: 'MC', name: 'MC', slots: 1, emoji: '🛡️' },
+    { code: 'MC', name: 'MC', slots: 1, emoji: '🪓' },
     { code: 'SM', name: 'SM', slots: 1, emoji: '💥' },
-    { code: 'MT', name: 'MT', slots: 1, emoji: '🌿' },
-    { code: 'ICE STACKING', name: 'ICE STACKING', slots: 1, emoji: '❄️' },
+    { code: 'Tank', name: 'Tank', slots: 1, emoji: '🛡️' },
+    { code: 'ICE STACK', name: 'ICE STACK', slots: 1, emoji: '❄️' },
     { code: 'ARCHER', name: 'ARCHER', slots: 2, emoji: '🎯' },
     { code: 'DPS', name: 'DPS', slots: 3, emoji: '⚔️' }
 ];
