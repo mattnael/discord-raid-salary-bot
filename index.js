@@ -110,8 +110,8 @@ const DEFAULT_ROLES = [
     { code: 'MC', name: 'MC', slots: 1, emoji: '🪓' },
     { code: 'SM', name: 'SM', slots: 1, emoji: '💥' },
     { code: 'Tank', name: 'Tank', slots: 1, emoji: '🛡️' },
-    { code: 'ICE STACK', name: 'ICE STACK', slots: 1, emoji: '❄️' },
-    { code: 'ARCHER', name: 'ARCHER', slots: 2, emoji: '🎯' },
+    { code: 'ICE STACK', name: 'Ice Stack', slots: 1, emoji: '❄️' },
+    { code: 'ARCHER', name: 'Archer', slots: 2, emoji: '🎯' },
     { code: 'DPS', name: 'DPS', slots: 3, emoji: '⚔️' }
 ];
 
@@ -206,14 +206,14 @@ async function renderRecruitPanel(partyId) {
     const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`rec_role_FU_${partyId}`).setLabel('FU').setStyle(ButtonStyle.Primary).setEmoji('🔴').setDisabled(isClosed),
         new ButtonBuilder().setCustomId(`rec_role_PR_${partyId}`).setLabel('PR').setStyle(ButtonStyle.Primary).setEmoji('🏹').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_MC_${partyId}`).setLabel('MC').setStyle(ButtonStyle.Primary).setEmoji('🛡️').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_MC_${partyId}`).setLabel('MC').setStyle(ButtonStyle.Primary).setEmoji('🪓').setDisabled(isClosed),
         new ButtonBuilder().setCustomId(`rec_role_SM_${partyId}`).setLabel('SM').setStyle(ButtonStyle.Primary).setEmoji('💥').setDisabled(isClosed)
     );
 
     const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`rec_role_MT_${partyId}`).setLabel('MT').setStyle(ButtonStyle.Primary).setEmoji('🌿').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_ICE STACKING_${partyId}`).setLabel('ICE STACKING').setStyle(ButtonStyle.Primary).setEmoji('❄️').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_ARCHER_${partyId}`).setLabel('ARCHER').setStyle(ButtonStyle.Primary).setEmoji('🎯').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_MT_${partyId}`).setLabel('MT').setStyle(ButtonStyle.Primary).setEmoji('🛡️').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_ICE STACKING_${partyId}`).setLabel('Ice Stack').setStyle(ButtonStyle.Primary).setEmoji('❄️').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_ARCHER_${partyId}`).setLabel('Archer').setStyle(ButtonStyle.Primary).setEmoji('🎯').setDisabled(isClosed),
         new ButtonBuilder().setCustomId(`rec_role_DPS_${partyId}`).setLabel('DPS').setStyle(ButtonStyle.Primary).setEmoji('⚔️').setDisabled(isClosed)
     );
 
