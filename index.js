@@ -111,15 +111,15 @@ db.exec(`
 // Auto-Migration untuk kolom co_host_id
 try { db.exec("ALTER TABLE parties ADD COLUMN co_host_id TEXT DEFAULT NULL;"); } catch (e) {}
 
-// Konfigurasi Default Roles untuk Recruitment
+// Konfigurasi Default Roles untuk Recruitment (KODE ROLE DISESUAIKAN)
 const DEFAULT_ROLES = [
-    { code: 'Force User', name: 'Force User', slots: 2, emoji: '🔴' },
-    { code: 'Healer', name: 'Healer', slots: 1, emoji: '🏥' },
-    { code: 'Mercenary', name: 'Mercenary', slots: 1, emoji: '🪓' },
-    { code: 'Swordmaster', name: 'Swordmaster', slots: 1, emoji: '🗡️' },
-    { code: 'Tank', name: 'Tank', slots: 1, emoji: '🛡️' },
-    { code: 'Ice Stack', name: 'Ice stack', slots: 1, emoji: '❄️' },
-    { code: 'Acrobat', name: 'Acrobat', slots: 2, emoji: '🎯' },
+    { code: 'FU', name: 'Force User', slots: 2, emoji: '🔴' },
+    { code: 'PR', name: 'Healer', slots: 1, emoji: '🏥' },
+    { code: 'MC', name: 'Mercenary', slots: 1, emoji: '🪓' },
+    { code: 'SM', name: 'Swordmaster', slots: 1, emoji: '🗡️' },
+    { code: 'MT', name: 'Tank', slots: 1, emoji: '🛡️' },
+    { code: 'ICE', name: 'Ice Stack', slots: 1, emoji: '❄️' },
+    { code: 'ACRO', name: 'Acrobat', slots: 2, emoji: '🎯' },
     { code: 'DPS', name: 'DPS', slots: 3, emoji: '⚔️' }
 ];
 
@@ -230,8 +230,8 @@ async function renderRecruitPanel(partyId) {
 
     const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`rec_role_MT_${partyId}`).setLabel('Tank').setStyle(ButtonStyle.Primary).setEmoji('🛡️').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_ICE STACKING_${partyId}`).setLabel('Ice Stack').setStyle(ButtonStyle.Primary).setEmoji('❄️').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_ARCHER_${partyId}`).setLabel('Acrobat').setStyle(ButtonStyle.Primary).setEmoji('🎯').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_ICE_${partyId}`).setLabel('Ice Stack').setStyle(ButtonStyle.Primary).setEmoji('❄️').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_ACRO_${partyId}`).setLabel('Acrobat').setStyle(ButtonStyle.Primary).setEmoji('🎯').setDisabled(isClosed),
         new ButtonBuilder().setCustomId(`rec_role_DPS_${partyId}`).setLabel('DPS').setStyle(ButtonStyle.Primary).setEmoji('⚔️').setDisabled(isClosed)
     );
 
