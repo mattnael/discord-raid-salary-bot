@@ -15,7 +15,9 @@ const {
     TextInputStyle,
     StringSelectMenuBuilder,
     StringSelectMenuOptionBuilder,
-    MessageFlags
+    MessageFlags,
+    PermissionFlagsBits,
+    ChannelType
 } = require('discord.js');
 const Database = require('better-sqlite3');
 
@@ -29,6 +31,12 @@ const db = new Database(dbPath);
 
 // Setup Schema Database
 db.exec(`
+    -- TABLE UNTUK KONFIGURASI CHANNEL PER SERVER
+    CREATE TABLE IF NOT EXISTS server_configs (
+        guild_id TEXT PRIMARY KEY,
+        salary_channel_id TEXT
+    );
+
     -- TABLE UNTUK FEATURE RECRUITMENT (/createparty)
     CREATE TABLE IF NOT EXISTS party_recruits (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -107,11 +115,11 @@ try { db.exec("ALTER TABLE parties ADD COLUMN co_host_id TEXT DEFAULT NULL;"); }
 const DEFAULT_ROLES = [
     { code: 'FU', name: 'FU', slots: 2, emoji: '🔴' },
     { code: 'PR', name: 'PR', slots: 1, emoji: '🏹' },
-    { code: 'MC', name: 'MC', slots: 1, emoji: '🪓' },
+    { code: 'MC', name: 'MC', slots: 1, emoji: '🛡️' },
     { code: 'SM', name: 'SM', slots: 1, emoji: '💥' },
-    { code: 'Tank', name: 'Tank', slots: 1, emoji: '🛡️' },
-    { code: 'ICE STACK', name: 'Ice Stack', slots: 1, emoji: '❄️' },
-    { code: 'ARCHER', name: 'Archer', slots: 2, emoji: '🎯' },
+    { code: 'MT', name: 'MT', slots: 1, emoji: '🌿' },
+    { code: 'ICE STACKING', name: 'ICE STACKING', slots: 1, emoji: '❄️' },
+    { code: 'ARCHER', name: 'ARCHER', slots: 2, emoji: '🎯' },
     { code: 'DPS', name: 'DPS', slots: 3, emoji: '⚔️' }
 ];
 
@@ -146,7 +154,17 @@ const commands = [
             opt.setName('title')
                .setDescription('Nama Raid / Party (Contoh: GDN HC SPAM)')
                .setRequired(true)
+        ),
+    new SlashCommandBuilder()
+        .setName('set-salary-channel')
+        .setDescription('Atur channel khusus untuk menampung Thread Salary/Earnings saat party selesai')
+        .addChannelOption(opt =>
+            opt.setName('channel')
+               .setDescription('Pilih channel khusus salary (Contoh: #earnings)')
+               .addChannelTypes(ChannelType.GuildText)
+               .setRequired(true)
         )
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
 ].map(cmd => cmd.toJSON());
 
 client.once('clientReady', async () => {
@@ -154,7 +172,7 @@ client.once('clientReady', async () => {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
         await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-        console.log('✅ Slash Commands (/createparty & /set-salary) Berhasil Didaftarkan!');
+        console.log('✅ Slash Commands (/createparty, /set-salary, /set-salary-channel) Berhasil Didaftarkan!');
     } catch (error) {
         console.error('❌ Gagal mendaftarkan slash command:', error);
     }
@@ -206,14 +224,14 @@ async function renderRecruitPanel(partyId) {
     const row1 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`rec_role_FU_${partyId}`).setLabel('FU').setStyle(ButtonStyle.Primary).setEmoji('🔴').setDisabled(isClosed),
         new ButtonBuilder().setCustomId(`rec_role_PR_${partyId}`).setLabel('PR').setStyle(ButtonStyle.Primary).setEmoji('🏹').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_MC_${partyId}`).setLabel('MC').setStyle(ButtonStyle.Primary).setEmoji('🪓').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_MC_${partyId}`).setLabel('MC').setStyle(ButtonStyle.Primary).setEmoji('🛡️').setDisabled(isClosed),
         new ButtonBuilder().setCustomId(`rec_role_SM_${partyId}`).setLabel('SM').setStyle(ButtonStyle.Primary).setEmoji('💥').setDisabled(isClosed)
     );
 
     const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`rec_role_MT_${partyId}`).setLabel('MT').setStyle(ButtonStyle.Primary).setEmoji('🛡️').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_ICE STACKING_${partyId}`).setLabel('Ice Stack').setStyle(ButtonStyle.Primary).setEmoji('❄️').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_ARCHER_${partyId}`).setLabel('Archer').setStyle(ButtonStyle.Primary).setEmoji('🎯').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_MT_${partyId}`).setLabel('MT').setStyle(ButtonStyle.Primary).setEmoji('🌿').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_ICE STACKING_${partyId}`).setLabel('ICE STACKING').setStyle(ButtonStyle.Primary).setEmoji('❄️').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_ARCHER_${partyId}`).setLabel('ARCHER').setStyle(ButtonStyle.Primary).setEmoji('🎯').setDisabled(isClosed),
         new ButtonBuilder().setCustomId(`rec_role_DPS_${partyId}`).setLabel('DPS').setStyle(ButtonStyle.Primary).setEmoji('⚔️').setDisabled(isClosed)
     );
 
@@ -365,6 +383,21 @@ client.on('interactionCreate', async interaction => {
     try {
         // A. COMMANDS HANDLING
         if (interaction.isChatInputCommand()) {
+            if (interaction.commandName === 'set-salary-channel') {
+                const targetChannel = interaction.options.getChannel('channel');
+
+                db.prepare(`
+                    INSERT INTO server_configs (guild_id, salary_channel_id)
+                    VALUES (?, ?)
+                    ON CONFLICT(guild_id) DO UPDATE SET salary_channel_id = excluded.salary_channel_id
+                `).run(interaction.guildId, targetChannel.id);
+
+                return interaction.reply({
+                    content: `✅ Channel khusus Salary Panel berhasil di-set ke <#${targetChannel.id}>! Semua thread salary party yang selesai akan dibuat di channel tersebut.`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+
             if (interaction.commandName === 'createparty') {
                 const title = interaction.options.getString('title');
 
@@ -517,14 +550,24 @@ client.on('interactionCreate', async interaction => {
                     const memberMentions = slots.map(s => `<@${s.user_id}>`).join(' ');
 
                     try {
-                        let thread = interaction.message.thread;
-                        if (!thread) {
-                            thread = await interaction.message.startThread({
-                                name: `Party ${party.title} - Members`,
-                                autoArchiveDuration: 1440,
-                                reason: 'Party Selesai - Membuat Thread Roster Member & Salary'
-                            });
+                        // Cek apakah server ini punya channel khusus salary (misal: #earnings)
+                        const config = db.prepare('SELECT salary_channel_id FROM server_configs WHERE guild_id = ?').get(interaction.guildId);
+                        
+                        let targetChannel = interaction.channel;
+                        if (config && config.salary_channel_id) {
+                            const fetchedChannel = await client.channels.fetch(config.salary_channel_id).catch(() => null);
+                            if (fetchedChannel) targetChannel = fetchedChannel;
                         }
+
+                        // Kirim pesan pemicu/starter di target channel (#earnings atau channel saat ini)
+                        const starterMsg = await targetChannel.send(`🎉 **Party ${party.title} Selesai!** (Host: <@${party.host_id}>)`);
+
+                        // Buat thread di dalam target channel tersebut
+                        const thread = await starterMsg.startThread({
+                            name: `Party ${party.title} - Members`,
+                            autoArchiveDuration: 1440,
+                            reason: 'Party Selesai - Membuat Thread Roster Member & Salary'
+                        });
 
                         if (slots.length > 0) {
                             await thread.send(`🎉 **Party ${party.title} Selesai!**\n\n**Daftar Member:**\n${memberMentions}`);
