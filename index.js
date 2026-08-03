@@ -113,13 +113,13 @@ try { db.exec("ALTER TABLE parties ADD COLUMN co_host_id TEXT DEFAULT NULL;"); }
 
 // Konfigurasi Default Roles untuk Recruitment
 const DEFAULT_ROLES = [
-    { code: 'FU', name: 'FU', slots: 2, emoji: '🔴' },
-    { code: 'PR', name: 'PR', slots: 1, emoji: '🏹' },
-    { code: 'MC', name: 'MC', slots: 1, emoji: '🛡️' },
-    { code: 'SM', name: 'SM', slots: 1, emoji: '💥' },
-    { code: 'MT', name: 'MT', slots: 1, emoji: '🌿' },
-    { code: 'ICE STACKING', name: 'ICE STACKING', slots: 1, emoji: '❄️' },
-    { code: 'ARCHER', name: 'ARCHER', slots: 2, emoji: '🎯' },
+    { code: 'Force User', name: 'Force User', slots: 2, emoji: '🔴' },
+    { code: 'Healer', name: 'Healer', slots: 1, emoji: '🏥' },
+    { code: 'Mercenary', name: 'Mercenary', slots: 1, emoji: '🪓' },
+    { code: 'Swordmaster', name: 'Swordmaster', slots: 1, emoji: '🗡️' },
+    { code: 'Tank', name: 'Tank', slots: 1, emoji: '🛡️' },
+    { code: 'Ice Stack', name: 'Ice stack', slots: 1, emoji: '❄️' },
+    { code: 'Acrobat', name: 'Acrobat', slots: 2, emoji: '🎯' },
     { code: 'DPS', name: 'DPS', slots: 3, emoji: '⚔️' }
 ];
 
@@ -222,16 +222,16 @@ async function renderRecruitPanel(partyId) {
     const isClosed = party.status === 'Done' || party.status === 'Cancelled';
 
     const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`rec_role_FU_${partyId}`).setLabel('FU').setStyle(ButtonStyle.Primary).setEmoji('🔴').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_PR_${partyId}`).setLabel('PR').setStyle(ButtonStyle.Primary).setEmoji('🏹').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_MC_${partyId}`).setLabel('MC').setStyle(ButtonStyle.Primary).setEmoji('🛡️').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_SM_${partyId}`).setLabel('SM').setStyle(ButtonStyle.Primary).setEmoji('💥').setDisabled(isClosed)
+        new ButtonBuilder().setCustomId(`rec_role_FU_${partyId}`).setLabel('Force User').setStyle(ButtonStyle.Primary).setEmoji('🔴').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_PR_${partyId}`).setLabel('Healer').setStyle(ButtonStyle.Primary).setEmoji('🏥').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_MC_${partyId}`).setLabel('Mercenary').setStyle(ButtonStyle.Primary).setEmoji('🪓').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_SM_${partyId}`).setLabel('Swordmaster').setStyle(ButtonStyle.Primary).setEmoji('🗡️').setDisabled(isClosed)
     );
 
     const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`rec_role_MT_${partyId}`).setLabel('MT').setStyle(ButtonStyle.Primary).setEmoji('🌿').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_ICE STACKING_${partyId}`).setLabel('ICE STACKING').setStyle(ButtonStyle.Primary).setEmoji('❄️').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_ARCHER_${partyId}`).setLabel('ARCHER').setStyle(ButtonStyle.Primary).setEmoji('🎯').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_MT_${partyId}`).setLabel('Tank').setStyle(ButtonStyle.Primary).setEmoji('🛡️').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_ICE STACKING_${partyId}`).setLabel('Ice Stack').setStyle(ButtonStyle.Primary).setEmoji('❄️').setDisabled(isClosed),
+        new ButtonBuilder().setCustomId(`rec_role_ARCHER_${partyId}`).setLabel('Acrobat').setStyle(ButtonStyle.Primary).setEmoji('🎯').setDisabled(isClosed),
         new ButtonBuilder().setCustomId(`rec_role_DPS_${partyId}`).setLabel('DPS').setStyle(ButtonStyle.Primary).setEmoji('⚔️').setDisabled(isClosed)
     );
 
