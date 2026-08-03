@@ -55,7 +55,8 @@ db.exec(`
         party_id INTEGER,
         role_code TEXT,
         slot_index INTEGER,
-        user_id TEXT DEFAULT NULL
+        user_id TEXT DEFAULT NULL,
+        sub_job TEXT DEFAULT NULL
     );
 
     -- TABLE UNTUK FEATURE SALARY PANEL
@@ -108,10 +109,11 @@ db.exec(`
     );
 `);
 
-// Auto-Migration untuk kolom co_host_id
+// Auto-Migrations
 try { db.exec("ALTER TABLE parties ADD COLUMN co_host_id TEXT DEFAULT NULL;"); } catch (e) {}
+try { db.exec("ALTER TABLE party_recruit_slots ADD COLUMN sub_job TEXT DEFAULT NULL;"); } catch (e) {}
 
-// Konfigurasi Default Roles untuk Recruitment (KODE ROLE DISESUAIKAN)
+// Konfigurasi Default Roles untuk Recruitment
 const DEFAULT_ROLES = [
     { code: 'FU', name: 'Force User', slots: 2, emoji: '🔴' },
     { code: 'PR', name: 'Healer', slots: 1, emoji: '🏥' },
@@ -186,6 +188,56 @@ function formatUser(userId) {
     return userId;
 }
 
+// Helper Assign DPS Role
+async function assignDpsRole(interaction, partyId, jobName) {
+    const party = db.prepare('SELECT * FROM party_recruits WHERE id = ?').get(partyId);
+    if (!party || party.status === 'Done' || party.status === 'Cancelled') {
+        const msg = '🔒 Party ini sudah selesai atau dibatalkan.';
+        return interaction.replied || interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+    }
+    if (party.status === 'Locked') {
+        const msg = '🔒 Party sedang dikunci oleh Host.';
+        return interaction.replied || interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+    }
+
+    const allSlots = db.prepare('SELECT * FROM party_recruit_slots WHERE party_id = ?').all(partyId);
+    const existingUserSlot = allSlots.find(s => s.user_id === interaction.user.id);
+    const uniqueFilled = new Set(allSlots.filter(s => s.user_id !== null).map(s => s.user_id));
+
+    if (!existingUserSlot && uniqueFilled.size >= 8) {
+        const msg = '❌ Party sudah penuh (8/8 Player)!';
+        return interaction.replied || interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+    }
+
+    const availableSlot = allSlots.find(s => s.role_code === 'DPS' && s.user_id === null);
+    if (!availableSlot && (!existingUserSlot || existingUserSlot.role_code !== 'DPS')) {
+        const msg = '❌ Slot role **DPS** sudah penuh (Max 3 DPS)!';
+        return interaction.replied || interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+    }
+
+    // Reset slot lama user jika berpindah role
+    if (existingUserSlot) {
+        db.prepare('UPDATE party_recruit_slots SET user_id = NULL, sub_job = NULL WHERE id = ?').run(existingUserSlot.id);
+    }
+
+    // Assign ke slot DPS
+    const targetSlotId = (existingUserSlot && existingUserSlot.role_code === 'DPS') ? existingUserSlot.id : availableSlot.id;
+    db.prepare('UPDATE party_recruit_slots SET user_id = ?, sub_job = ? WHERE id = ?').run(interaction.user.id, jobName, targetSlotId);
+
+    // Update Embed Panel
+    const channel = await client.channels.fetch(party.channel_id);
+    const message = await channel.messages.fetch(party.message_id);
+    const panelData = await renderRecruitPanel(partyId);
+    await message.edit(panelData);
+
+    const successMsg = `✅ Kamu berhasil join sebagai **DPS (${jobName})**!`;
+    if (interaction.isModalSubmit()) {
+        return interaction.reply({ content: successMsg, flags: MessageFlags.Ephemeral });
+    } else {
+        return interaction.update({ content: successMsg, components: [] });
+    }
+}
+
 // ==========================================
 // 1. RENDER FUNCTION: RECRUITMENT PANEL
 // ==========================================
@@ -196,7 +248,10 @@ async function renderRecruitPanel(partyId) {
     let rolesDescription = '**Roles**\n';
     DEFAULT_ROLES.forEach(r => {
         const slotsForRole = allSlots.filter(s => s.role_code === r.code);
-        const slotText = slotsForRole.map(s => s.user_id ? `<@${s.user_id}>` : '*empty*').join(', ');
+        const slotText = slotsForRole.map(s => {
+            if (!s.user_id) return '*empty*';
+            return s.sub_job ? `<@${s.user_id}> (${s.sub_job})` : `<@${s.user_id}>`;
+        }).join(', ');
         rolesDescription += `**${r.name}** — ${slotText}\n`;
     });
 
@@ -467,6 +522,39 @@ client.on('interactionCreate', async interaction => {
                         return interaction.reply({ content: '🔒 Party sedang dikunci oleh Host.', flags: MessageFlags.Ephemeral });
                     }
 
+                    // --- KHUSUS ROLE DPS: PILIH SUB-CLASS ---
+                    if (roleCode === 'DPS') {
+                        const selectMenu = new StringSelectMenuBuilder()
+                            .setCustomId(`select_rec_dps_job_${partyId}`)
+                            .setPlaceholder('Pilih Class / Job DPS kamu...')
+                            .addOptions([
+                                { label: 'Crusader', value: 'Crusader', emoji: '🔨' },
+                                { label: 'Inquisitor', value: 'Inquisitor', emoji: '⚡' },
+                                { label: 'Dark Summoner', value: 'Dark Summoner', emoji: '🔮' },
+                                { label: 'Blade Dancer', value: 'Blade Dancer', emoji: '💃' },
+                                { label: 'Spirit Dancer', value: 'Spirit Dancer', emoji: '💃' },
+                                { label: 'Artilery', value: 'Artilery', emoji: '🎯' },
+                                { label: 'Dark Avenger', value: 'Dark Avenger', emoji: '⚔️' },
+                                { label: 'Shooting Star', value: 'Shooting Star', emoji: '🤖' },
+                                { label: 'Gear Master', value: 'Gear Master', emoji: '🤖' },
+                                { label: 'Saleana', value: 'Saleana', emoji: '🔥' },
+                                { label: 'Sniper', value: 'Sniper', emoji: '🎯' },
+                                { label: 'Abyss Walker', value: 'Abyss Walker', emoji: '🗡️' },
+                                { label: 'Raven', value: 'Raven', emoji: '🥷' },
+                                { label: 'Ripper', value: 'Ripper', emoji: '🥷' },
+                                { label: 'Silver Hunter', value: 'Silver Hunter', emoji: '🏹' },
+                                { label: 'Tulis Job Lainnya...', value: 'CUSTOM_JOB', emoji: '✏️' }
+                            ]);
+
+                        const row = new ActionRowBuilder().addComponents(selectMenu);
+                        return interaction.reply({
+                            content: '⚔️ **Pilih Sub-Class / Job DPS yang kamu pakai:**',
+                            components: [row],
+                            flags: MessageFlags.Ephemeral
+                        });
+                    }
+
+                    // --- UNTUK ROLE SELAIN DPS ---
                     const allSlots = db.prepare('SELECT * FROM party_recruit_slots WHERE party_id = ?').all(partyId);
                     const existingUserSlot = allSlots.find(s => s.user_id === interaction.user.id);
                     const uniqueFilled = new Set(allSlots.filter(s => s.user_id !== null).map(s => s.user_id));
@@ -481,10 +569,10 @@ client.on('interactionCreate', async interaction => {
                     }
 
                     if (existingUserSlot) {
-                        db.prepare('UPDATE party_recruit_slots SET user_id = NULL WHERE id = ?').run(existingUserSlot.id);
+                        db.prepare('UPDATE party_recruit_slots SET user_id = NULL, sub_job = NULL WHERE id = ?').run(existingUserSlot.id);
                     }
 
-                    db.prepare('UPDATE party_recruit_slots SET user_id = ? WHERE id = ?').run(interaction.user.id, availableSlot.id);
+                    db.prepare('UPDATE party_recruit_slots SET user_id = ?, sub_job = NULL WHERE id = ?').run(interaction.user.id, availableSlot.id);
 
                     const panelData = await renderRecruitPanel(partyId);
                     return await interaction.update(panelData);
@@ -492,7 +580,7 @@ client.on('interactionCreate', async interaction => {
 
                 if (id.startsWith('rec_cancel_role_')) {
                     const partyId = parseInt(id.split('_')[3]);
-                    db.prepare('UPDATE party_recruit_slots SET user_id = NULL WHERE party_id = ? AND user_id = ?').run(partyId, interaction.user.id);
+                    db.prepare('UPDATE party_recruit_slots SET user_id = NULL, sub_job = NULL WHERE party_id = ? AND user_id = ?').run(partyId, interaction.user.id);
 
                     const panelData = await renderRecruitPanel(partyId);
                     return await interaction.update(panelData);
@@ -550,7 +638,6 @@ client.on('interactionCreate', async interaction => {
                     const memberMentions = slots.map(s => `<@${s.user_id}>`).join(' ');
 
                     try {
-                        // Cek apakah server ini punya channel khusus salary (misal: #earnings)
                         const config = db.prepare('SELECT salary_channel_id FROM server_configs WHERE guild_id = ?').get(interaction.guildId);
                         
                         let targetChannel = interaction.channel;
@@ -559,10 +646,8 @@ client.on('interactionCreate', async interaction => {
                             if (fetchedChannel) targetChannel = fetchedChannel;
                         }
 
-                        // Kirim pesan pemicu/starter di target channel (#earnings atau channel saat ini)
                         const starterMsg = await targetChannel.send(`🎉 **Party ${party.title} Selesai!** (Host: <@${party.host_id}>)`);
 
-                        // Buat thread di dalam target channel tersebut
                         const thread = await starterMsg.startThread({
                             name: `Party ${party.title} - Members`,
                             autoArchiveDuration: 1440,
@@ -828,11 +913,32 @@ client.on('interactionCreate', async interaction => {
 
         // C. SELECT MENU HANDLERS
         if (interaction.isStringSelectMenu()) {
+            if (interaction.customId.startsWith('select_rec_dps_job_')) {
+                const partyId = parseInt(interaction.customId.split('_')[4]);
+                const selectedJob = interaction.values[0];
+
+                if (selectedJob === 'CUSTOM_JOB') {
+                    const modal = new ModalBuilder()
+                        .setCustomId(`modal_rec_dps_custom_${partyId}`)
+                        .setTitle('Input Class / Job DPS');
+                    const input = new TextInputBuilder()
+                        .setCustomId('custom_job_input')
+                        .setLabel('Nama Job DPS Kamu')
+                        .setStyle(TextInputStyle.Short)
+                        .setPlaceholder('Contoh: Bleed Phantom, Black Mara, dll.')
+                        .setRequired(true);
+                    modal.addComponents(new ActionRowBuilder().addComponents(input));
+                    return interaction.showModal(modal);
+                }
+
+                return await assignDpsRole(interaction, partyId, selectedJob);
+            }
+
             if (interaction.customId.startsWith('select_rec_kick_')) {
                 const partyId = parseInt(interaction.customId.split('_')[3]);
                 const targetUserId = interaction.values[0];
 
-                db.prepare('UPDATE party_recruit_slots SET user_id = NULL WHERE party_id = ? AND user_id = ?').run(partyId, targetUserId);
+                db.prepare('UPDATE party_recruit_slots SET user_id = NULL, sub_job = NULL WHERE party_id = ? AND user_id = ?').run(partyId, targetUserId);
 
                 const party = db.prepare('SELECT * FROM party_recruits WHERE id = ?').get(partyId);
                 const channel = await client.channels.fetch(party.channel_id);
@@ -921,6 +1027,12 @@ client.on('interactionCreate', async interaction => {
         // D. MODAL SUBMIT HANDLERS
         if (interaction.isModalSubmit()) {
             const id = interaction.customId;
+
+            if (id.startsWith('modal_rec_dps_custom_')) {
+                const partyId = parseInt(id.split('_')[4]);
+                const customJob = interaction.fields.getTextInputValue('custom_job_input').trim();
+                return await assignDpsRole(interaction, partyId, customJob);
+            }
 
             if (id.startsWith('modal_rec_edit_title_')) {
                 const partyId = parseInt(id.split('_')[4]);
