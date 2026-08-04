@@ -31,6 +31,12 @@ const db = new Database(dbPath);
 
 // Setup Schema Database
 db.exec(`
+    -- TABLE UNTUK KATALOG ITEM MASTER
+    CREATE TABLE IF NOT EXISTS master_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT UNIQUE
+    );
+
     -- TABLE UNTUK KONFIGURASI CHANNEL PER SERVER
     CREATE TABLE IF NOT EXISTS server_configs (
         guild_id TEXT PRIMARY KEY,
@@ -109,6 +115,19 @@ db.exec(`
     );
 `);
 
+// Seed Default Master Items
+const DEFAULT_CATALOG = [
+    'Desert Dragon Gauntlet',
+    'Desert Dragon Record',
+    'Desert Dragon Jakard',
+    'Smelted Rune',
+    'Desert Dragon Sword',
+    'Desert Dragon Axe',
+    'Desert Dragon Staff',
+];
+const insertMaster = db.prepare('INSERT OR IGNORE INTO master_items (name) VALUES (?)');
+DEFAULT_CATALOG.forEach(itemName => insertMaster.run(itemName));
+
 // Auto-Migrations
 try { db.exec("ALTER TABLE parties ADD COLUMN co_host_id TEXT DEFAULT NULL;"); } catch (e) {}
 try { db.exec("ALTER TABLE party_recruit_slots ADD COLUMN sub_job TEXT DEFAULT NULL;"); } catch (e) {}
@@ -139,7 +158,7 @@ const client = new Client({
     }
 });
 
-// Register Slash Commands
+// Register Slash Commands (Termasuk /add-item)
 const commands = [
     new SlashCommandBuilder()
         .setName('createparty')
@@ -166,7 +185,26 @@ const commands = [
                .addChannelTypes(ChannelType.GuildText)
                .setRequired(true)
         )
-        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
+        .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild),
+    new SlashCommandBuilder()
+        .setName('add-item')
+        .setDescription('Tambah item loot ke panel salary aktif di channel/thread ini')
+        .addStringOption(opt =>
+            opt.setName('name')
+               .setDescription('Nama item loot (Autocomplete rekomendasi dari Katalog DB)')
+               .setAutocomplete(true)
+               .setRequired(true)
+        )
+        .addIntegerOption(opt =>
+            opt.setName('qty')
+               .setDescription('Jumlah item (Default: 1)')
+               .setRequired(false)
+        )
+        .addIntegerOption(opt =>
+            opt.setName('price')
+               .setDescription('Harga Gold (Isi 0 jika belum laku)')
+               .setRequired(false)
+        )
 ].map(cmd => cmd.toJSON());
 
 client.once('clientReady', async () => {
@@ -174,7 +212,7 @@ client.once('clientReady', async () => {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
         await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-        console.log('✅ Slash Commands (/createparty, /set-salary, /set-salary-channel) Berhasil Didaftarkan!');
+        console.log('✅ Slash Commands (/createparty, /set-salary, /set-salary-channel, /add-item) Berhasil Didaftarkan!');
     } catch (error) {
         console.error('❌ Gagal mendaftarkan slash command:', error);
     }
@@ -215,16 +253,13 @@ async function assignDpsRole(interaction, partyId, jobName) {
         return interaction.replied || interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
     }
 
-    // Reset slot lama user jika berpindah role
     if (existingUserSlot) {
         db.prepare('UPDATE party_recruit_slots SET user_id = NULL, sub_job = NULL WHERE id = ?').run(existingUserSlot.id);
     }
 
-    // Assign ke slot DPS
     const targetSlotId = (existingUserSlot && existingUserSlot.role_code === 'DPS') ? existingUserSlot.id : availableSlot.id;
     db.prepare('UPDATE party_recruit_slots SET user_id = ?, sub_job = ? WHERE id = ?').run(interaction.user.id, jobName, targetSlotId);
 
-    // Update Embed Panel
     const channel = await client.channels.fetch(party.channel_id);
     const message = await channel.messages.fetch(party.message_id);
     const panelData = await renderRecruitPanel(partyId);
@@ -436,7 +471,19 @@ async function renderSalaryPanel(partyId, isClosed = false) {
 // ==========================================
 client.on('interactionCreate', async interaction => {
     try {
-        // A. COMMANDS HANDLING
+        // A. AUTOCOMPLETE HANDLER (/add-item)
+        if (interaction.isAutocomplete()) {
+            if (interaction.commandName === 'add-item') {
+                const focusedValue = interaction.options.getFocused();
+                const matchedItems = db.prepare('SELECT name FROM master_items WHERE name LIKE ? LIMIT 25').all(`%${focusedValue}%`);
+                
+                await interaction.respond(
+                    matchedItems.map(item => ({ name: item.name, value: item.name }))
+                );
+            }
+        }
+
+        // B. SLASH COMMANDS HANDLING
         if (interaction.isChatInputCommand()) {
             if (interaction.commandName === 'set-salary-channel') {
                 const targetChannel = interaction.options.getChannel('channel');
@@ -500,9 +547,56 @@ client.on('interactionCreate', async interaction => {
 
                 db.prepare('UPDATE parties SET message_id = ? WHERE id = ?').run(msg.id, partyId);
             }
+
+            // --- SLASH COMMAND OPSI 1: /add-item (DENGAN AUTOCOMPLETE) ---
+            if (interaction.commandName === 'add-item') {
+                let party = db.prepare('SELECT * FROM parties WHERE channel_id = ? AND status != "CLOSED" ORDER BY id DESC').get(interaction.channelId);
+
+                if (!party && interaction.channel.isThread()) {
+                    party = db.prepare('SELECT * FROM parties WHERE channel_id = ? AND status != "CLOSED" ORDER BY id DESC').get(interaction.channel.id);
+                }
+
+                if (!party) {
+                    return interaction.reply({
+                        content: '❌ Sesi Salary Panel aktif tidak ditemukan di channel/thread ini!',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                const isHostOrCoHost = (interaction.user.id === party.host_id) || (party.co_host_id && interaction.user.id === party.co_host_id);
+                if (!isHostOrCoHost) {
+                    return interaction.reply({
+                        content: `❌ Hanya Host (<@${party.host_id}>) atau Co-Host yang dapat menambah item!`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+
+                const name = interaction.options.getString('name').trim();
+                const qty = interaction.options.getInteger('qty') || 1;
+                const price = interaction.options.getInteger('price') || 0;
+                const isSold = price > 0 ? 1 : 0;
+
+                // 1. Simpan item ke DB party
+                db.prepare('INSERT INTO items (party_id, name, qty, price, is_sold) VALUES (?, ?, ?, ?, ?)').run(party.id, name, qty, price, isSold);
+
+                // 2. Auto-learn ke Katalog Master_Items DB
+                try { db.prepare('INSERT OR IGNORE INTO master_items (name) VALUES (?)').run(name); } catch(e){}
+
+                // 3. Update Embed Panel
+                const channel = await client.channels.fetch(party.channel_id);
+                const message = await channel.messages.fetch(party.message_id);
+                const panelData = await renderSalaryPanel(party.id);
+                await message.edit(panelData);
+
+                const statusText = isSold ? `Sudah Laku (${price}g)` : 'Belum Laku';
+                return interaction.reply({
+                    content: `✅ Item **${qty}x ${name}** [${statusText}] berhasil ditambahkan ke panel salary!`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
         }
 
-        // B. BUTTON INTERACTIONS
+        // C. BUTTON INTERACTIONS
         if (interaction.isButton()) {
             const id = interaction.customId;
 
@@ -522,7 +616,6 @@ client.on('interactionCreate', async interaction => {
                         return interaction.reply({ content: '🔒 Party sedang dikunci oleh Host.', flags: MessageFlags.Ephemeral });
                     }
 
-                    // --- KHUSUS ROLE DPS: PILIH SUB-CLASS ---
                     if (roleCode === 'DPS') {
                         const selectMenu = new StringSelectMenuBuilder()
                             .setCustomId(`select_rec_dps_job_${partyId}`)
@@ -554,7 +647,6 @@ client.on('interactionCreate', async interaction => {
                         });
                     }
 
-                    // --- UNTUK ROLE SELAIN DPS ---
                     const allSlots = db.prepare('SELECT * FROM party_recruit_slots WHERE party_id = ?').all(partyId);
                     const existingUserSlot = allSlots.find(s => s.user_id === interaction.user.id);
                     const uniqueFilled = new Set(allSlots.filter(s => s.user_id !== null).map(s => s.user_id));
@@ -717,6 +809,7 @@ client.on('interactionCreate', async interaction => {
                     return interaction.reply({ content: `❌ Hanya Host (<@${party.host_id}>) atau Co-Host yang dapat mengatur panel ini.`, flags: MessageFlags.Ephemeral });
                 }
 
+                // OPSI 2 (A): TOMBOL "SET HARGA ITEM" MEMUNCULKAN BOX POP-UP MODAL
                 if (id.startsWith('sal_add_item_')) {
                     const modal = new ModalBuilder().setCustomId(`modal_sal_item_${partyId}`).setTitle('Tambah / Set Harga Item');
                     modal.addComponents(
@@ -727,13 +820,29 @@ client.on('interactionCreate', async interaction => {
                     return interaction.showModal(modal);
                 }
 
+                // OPSI 2 (B): TOMBOL "CHANGE STATUS ITEM" MEMUNCULKAN DROPDOWN ITEM BELUM LAKU
                 if (id.startsWith('sal_change_item_status_')) {
-                    const modal = new ModalBuilder().setCustomId(`modal_sal_markpaid_${partyId}`).setTitle('Change Status Item (Set Laku)');
-                    modal.addComponents(
-                        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('item_name').setLabel('Nama Item yang Belum Laku').setStyle(TextInputStyle.Short).setRequired(true)),
-                        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('item_price').setLabel('Harga Penjualan (Gold)').setStyle(TextInputStyle.Short).setRequired(true))
-                    );
-                    return interaction.showModal(modal);
+                    const unsoldItems = db.prepare('SELECT * FROM items WHERE party_id = ? AND is_sold = 0').all(partyId);
+
+                    if (unsoldItems.length === 0) {
+                        return interaction.reply({ content: '❌ Tidak ada item yang berstatus **Belum Laku** di panel ini.', flags: MessageFlags.Ephemeral });
+                    }
+
+                    const selectMenu = new StringSelectMenuBuilder()
+                        .setCustomId(`select_sal_mark_sold_${partyId}`)
+                        .setPlaceholder('Pilih item yang sudah laku...');
+
+                    unsoldItems.forEach(item => {
+                        selectMenu.addOptions(
+                            new StringSelectMenuOptionBuilder()
+                                .setLabel(`${item.qty}x ${item.name}`)
+                                .setValue(`${item.id}`)
+                                .setDescription('Klik untuk memasukkan harga penjualan')
+                        );
+                    });
+
+                    const row = new ActionRowBuilder().addComponents(selectMenu);
+                    return interaction.reply({ content: '🏷️ **Pilih item yang ingin diubah menjadi Sudah Laku:**', components: [row], flags: MessageFlags.Ephemeral });
                 }
 
                 if (id.startsWith('sal_delete_item_')) {
@@ -911,8 +1020,22 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
-        // C. SELECT MENU HANDLERS
+        // D. SELECT MENU HANDLERS
         if (interaction.isStringSelectMenu()) {
+            if (interaction.customId.startsWith('select_sal_mark_sold_')) {
+                const partyId = parseInt(interaction.customId.split('_')[4]);
+                const itemId = parseInt(interaction.values[0]);
+                const item = db.prepare('SELECT * FROM items WHERE id = ?').get(itemId);
+
+                const modal = new ModalBuilder()
+                    .setCustomId(`modal_sal_set_sold_price_${partyId}_${itemId}`)
+                    .setTitle(`Set Laku: ${item ? item.name : 'Item'}`);
+                modal.addComponents(
+                    new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('sold_price').setLabel('Harga Penjualan (Gold)').setStyle(TextInputStyle.Short).setRequired(true))
+                );
+                return interaction.showModal(modal);
+            }
+
             if (interaction.customId.startsWith('select_rec_dps_job_')) {
                 const partyId = parseInt(interaction.customId.split('_')[4]);
                 const selectedJob = interaction.values[0];
@@ -1024,9 +1147,49 @@ client.on('interactionCreate', async interaction => {
             }
         }
 
-        // D. MODAL SUBMIT HANDLERS
+        // E. MODAL SUBMIT HANDLERS
         if (interaction.isModalSubmit()) {
             const id = interaction.customId;
+
+            // HANDLER SUBMIT MODAL ITEM (AUTO-LEARN KE MASTER_ITEMS DB)
+            if (id.startsWith('modal_sal_item_')) {
+                const partyId = parseInt(id.split('_')[3]);
+                const name = interaction.fields.getTextInputValue('item_name').trim();
+                const qty = parseInt(interaction.fields.getTextInputValue('item_qty')) || 1;
+                const price = parseInt(interaction.fields.getTextInputValue('item_price')) || 0;
+                const isSold = price > 0 ? 1 : 0;
+
+                // 1. Simpan ke database item party
+                db.prepare('INSERT INTO items (party_id, name, qty, price, is_sold) VALUES (?, ?, ?, ?, ?)').run(partyId, name, qty, price, isSold);
+
+                // 2. Auto-learn simpan ke master_items katalog DB
+                try { db.prepare('INSERT OR IGNORE INTO master_items (name) VALUES (?)').run(name); } catch(e){}
+
+                const party = db.prepare('SELECT * FROM parties WHERE id = ?').get(partyId);
+                const channel = await client.channels.fetch(party.channel_id);
+                const message = await channel.messages.fetch(party.message_id);
+                const panelData = await renderSalaryPanel(partyId);
+                await message.edit(panelData);
+
+                return interaction.reply({ content: `✅ Item **${qty}x ${name}** berhasil ditambahkan!`, flags: MessageFlags.Ephemeral });
+            }
+
+            if (id.startsWith('modal_sal_set_sold_price_')) {
+                const parts = id.split('_');
+                const partyId = parseInt(parts[4]);
+                const itemId = parseInt(parts[5]);
+                const price = parseInt(interaction.fields.getTextInputValue('sold_price')) || 0;
+
+                db.prepare('UPDATE items SET price = ?, is_sold = 1 WHERE id = ?').run(price, itemId);
+
+                const party = db.prepare('SELECT * FROM parties WHERE id = ?').get(partyId);
+                const channel = await client.channels.fetch(party.channel_id);
+                const message = await channel.messages.fetch(party.message_id);
+                const panelData = await renderSalaryPanel(partyId);
+                await message.edit(panelData);
+
+                return interaction.reply({ content: `✅ Item berhasil di-set **Sudah Laku** dengan harga **${price}g**!`, flags: MessageFlags.Ephemeral });
+            }
 
             if (id.startsWith('modal_rec_dps_custom_')) {
                 const partyId = parseInt(id.split('_')[4]);
@@ -1041,36 +1204,6 @@ client.on('interactionCreate', async interaction => {
                 db.prepare('UPDATE party_recruits SET title = ? WHERE id = ?').run(newTitle, partyId);
                 const panelData = await renderRecruitPanel(partyId);
                 return await interaction.update(panelData);
-            }
-
-            if (id.startsWith('modal_sal_item_')) {
-                const partyId = parseInt(id.split('_')[3]);
-                const name = interaction.fields.getTextInputValue('item_name');
-                const qty = parseInt(interaction.fields.getTextInputValue('item_qty')) || 1;
-                const price = parseInt(interaction.fields.getTextInputValue('item_price')) || 0;
-                const isSold = price > 0 ? 1 : 0;
-
-                db.prepare('INSERT INTO items (party_id, name, qty, price, is_sold) VALUES (?, ?, ?, ?, ?)').run(partyId, name, qty, price, isSold);
-                const panelData = await renderSalaryPanel(partyId);
-                await interaction.update(panelData);
-            }
-
-            if (id.startsWith('modal_sal_markpaid_')) {
-                const partyId = parseInt(id.split('_')[3]);
-                const name = interaction.fields.getTextInputValue('item_name');
-                const price = parseInt(interaction.fields.getTextInputValue('item_price')) || 0;
-
-                const existing = db.prepare('SELECT * FROM items WHERE party_id = ? AND LOWER(name) LIKE LOWER(?) AND is_sold = 0').get(partyId, `%${name}%`);
-                if (existing) {
-                    db.prepare('UPDATE items SET price = ?, is_sold = 1 WHERE id = ?').run(price, existing.id);
-                    const panelData = await renderSalaryPanel(partyId);
-                    await interaction.update(panelData);
-                } else {
-                    return interaction.reply({ 
-                        content: `❌ Item dengan nama "${name}" tidak ditemukan di daftar **Belum Laku** (atau item tersebut sudah berstatus Laku).`, 
-                        flags: MessageFlags.Ephemeral 
-                    });
-                }
             }
 
             if (id.startsWith('modal_sal_addgold_')) {
