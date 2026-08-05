@@ -91,7 +91,7 @@ db.exec(`
         party_id INTEGER,
         user_id TEXT,
         stamps INTEGER DEFAULT 1,
-        cost_per_stamp INTEGER DEFAULT 5
+        cost_per_stamp REAL DEFAULT 5.0
     );
 
     CREATE TABLE IF NOT EXISTS gold_drops (
@@ -359,9 +359,12 @@ async function renderSalaryPanel(partyId, isClosed = false) {
     let totalStampGold = 0;
     let loanText = loans.length > 0 ? '' : '*(kosong)*';
     loans.forEach(l => {
-        const cost = l.stamps * l.cost_per_stamp;
+        const rate = l.cost_per_stamp !== undefined ? l.cost_per_stamp : 5;
+        const cost = l.stamps * rate;
         totalStampGold += cost;
-        loanText += `• ${formatUser(l.user_id)} — ${l.stamps} stamp (${cost}g)\n`;
+        const costFormatted = Number.isInteger(cost) ? cost : parseFloat(cost.toFixed(2));
+        const rateFormatted = Number.isInteger(rate) ? rate : parseFloat(rate.toFixed(2));
+        loanText += `• ${formatUser(l.user_id)} — ${l.stamps} stamp (${costFormatted}g) [${rateFormatted}g/stamp]\n`;
     });
 
     let sudahLakuText = '';
@@ -407,15 +410,18 @@ async function renderSalaryPanel(partyId, isClosed = false) {
             const userLoans = loans.filter(l => l.user_id === userId);
             let stampRefund = 0;
             userLoans.forEach(l => {
-                stampRefund += (l.stamps * l.cost_per_stamp);
+                const rate = l.cost_per_stamp !== undefined ? l.cost_per_stamp : 5;
+                stampRefund += (l.stamps * rate);
             });
 
             const totalGajiUser = gajiPokok + stampRefund;
-            const detailText = stampRefund > 0 ? ` *(termasuk stamp loan +${stampRefund}g)*` : '';
+            const stampRefundFormatted = Number.isInteger(stampRefund) ? stampRefund : parseFloat(stampRefund.toFixed(2));
+            const totalGajiUserFormatted = Number.isInteger(totalGajiUser) ? totalGajiUser : parseFloat(totalGajiUser.toFixed(2));
+            const detailText = stampRefund > 0 ? ` *(termasuk stamp loan +${stampRefundFormatted}g)*` : '';
 
             const statusEmoji = paidUsers.includes(userId) ? '✅' : '❌';
 
-            statusGajiText += `${statusEmoji} ${formatUser(userId)} — **${totalGajiUser}g**${detailText}\n`;
+            statusGajiText += `${statusEmoji} ${formatUser(userId)} — **${totalGajiUserFormatted}g**${detailText}\n`;
         });
     } else {
         statusGajiText += '*(Belum ada player di-tag)*';
@@ -880,7 +886,8 @@ client.on('interactionCreate', async interaction => {
                     const modal = new ModalBuilder().setCustomId(`modal_sal_stamp_${partyId}`).setTitle('Catat Pinjaman Stamp');
                     modal.addComponents(
                         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('user_id').setLabel('Nickname / Tag / User ID Player').setStyle(TextInputStyle.Short).setRequired(true)),
-                        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('stamp_count').setLabel('Jumlah Stamp (1 Stamp = 5g)').setStyle(TextInputStyle.Short).setValue('1').setRequired(true))
+                        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('stamp_count').setLabel('Jumlah Stamp').setStyle(TextInputStyle.Short).setValue('1').setRequired(true)),
+                        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('stamp_rate').setLabel('Harga per Stamp (Gold, bisa desimal)').setStyle(TextInputStyle.Short).setValue('5').setRequired(false))
                     );
                     return interaction.showModal(modal);
                 }
@@ -897,7 +904,9 @@ client.on('interactionCreate', async interaction => {
                         .setPlaceholder('Pilih catatan stamp loan yang ingin dihapus...');
 
                     for (const l of loans) {
-                        const cost = l.stamps * l.cost_per_stamp;
+                        const rate = l.cost_per_stamp !== undefined ? l.cost_per_stamp : 5;
+                        const cost = l.stamps * rate;
+                        const costFormatted = Number.isInteger(cost) ? cost : parseFloat(cost.toFixed(2));
                         let displayName = l.user_id.replace(/^<@!?|>$/g, '');
                         const cleanDigits = displayName.replace(/\D/g, '');
 
@@ -912,7 +921,7 @@ client.on('interactionCreate', async interaction => {
                             new StringSelectMenuOptionBuilder()
                                 .setLabel(displayName)
                                 .setValue(`${l.id}`)
-                                .setDescription(`${l.stamps} stamp (${cost}g)`)
+                                .setDescription(`${l.stamps} stamp (${costFormatted}g)`)
                         );
                     }
 
@@ -1219,6 +1228,11 @@ client.on('interactionCreate', async interaction => {
                 const partyId = parseInt(id.split('_')[3]);
                 let inputUser = interaction.fields.getTextInputValue('user_id').trim();
                 const stamps = parseInt(interaction.fields.getTextInputValue('stamp_count')) || 1;
+                
+                // Menerima rate stamp dinamis & fleksibel koma/titik desimal
+                const rawRate = interaction.fields.getTextInputValue('stamp_rate');
+                const parsedRate = rawRate ? parseFloat(rawRate.replace(',', '.')) : 5.0;
+                const costPerStamp = isNaN(parsedRate) ? 5.0 : parsedRate;
 
                 let resolvedUserId = inputUser;
                 const cleanDigits = inputUser.replace(/[<@!>]/g, '');
@@ -1233,7 +1247,7 @@ client.on('interactionCreate', async interaction => {
                     } catch (e) {}
                 }
 
-                db.prepare('INSERT INTO stamp_loans (party_id, user_id, stamps, cost_per_stamp) VALUES (?, ?, ?, ?)').run(partyId, resolvedUserId, stamps, 5);
+                db.prepare('INSERT INTO stamp_loans (party_id, user_id, stamps, cost_per_stamp) VALUES (?, ?, ?, ?)').run(partyId, resolvedUserId, stamps, costPerStamp);
                 const panelData = await renderSalaryPanel(partyId);
                 await interaction.update(panelData);
             }
