@@ -583,18 +583,19 @@ client.on('interactionCreate', async interaction => {
                 db.prepare('UPDATE parties SET message_id = ? WHERE id = ?').run(msg.id, partyId);
             }
 
-            // --- SLASH COMMAND: /add-item (PENANGANAN EROR ISOLASI) ---
+            // --- SLASH COMMAND: /add-item (PENANGANAN SQLITE FIXED) ---
             if (interaction.commandName === 'add-item') {
                 try {
                     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                     const targetChannelId = interaction.channelId;
-                    let party = db.prepare('SELECT * FROM parties WHERE channel_id = ? AND status != "CLOSED" ORDER BY id DESC').get(targetChannelId);
+                    // FIXED: Penggunaan single quote untuk string literal 'CLOSED' di SQLite!
+                    let party = db.prepare("SELECT * FROM parties WHERE channel_id = ? AND status != 'CLOSED' ORDER BY id DESC").get(targetChannelId);
 
                     if (!party && interaction.channel?.isThread()) {
                         const parentId = interaction.channel.parentId;
                         if (parentId) {
-                            party = db.prepare('SELECT * FROM parties WHERE channel_id = ? AND status != "CLOSED" ORDER BY id DESC').get(parentId);
+                            party = db.prepare("SELECT * FROM parties WHERE channel_id = ? AND status != 'CLOSED' ORDER BY id DESC").get(parentId);
                         }
                     }
 
