@@ -191,7 +191,7 @@ const commands = [
         .setDescription('Tambah item loot ke panel salary aktif di channel/thread ini')
         .addStringOption(opt =>
             opt.setName('name')
-               .setDescription('Nama item (Rekomendasi dari Katalog DB atau ketik item baru)')
+               .setDescription('Nama item loot (Autocomplete rekomendasi dari Katalog DB)')
                .setAutocomplete(true)
                .setRequired(true)
         )
@@ -476,24 +476,37 @@ async function renderSalaryPanel(partyId, isClosed = false) {
 // 3. MAIN INTERACTION HANDLER
 // ==========================================
 client.on('interactionCreate', async interaction => {
-    // A. AUTOCOMPLETE HANDLER (/add-item) - TERISOLASI
+    // A. AUTOCOMPLETE HANDLER (/add-item) - FIXED & BULLETPROOF
     if (interaction.isAutocomplete()) {
         try {
             if (interaction.commandName === 'add-item') {
-                const focusedValue = (interaction.options.getFocused() || '').toString().trim();
-                
-                const matchedItems = db.prepare(
-                    'SELECT DISTINCT name FROM master_items WHERE name LIKE ? LIMIT 25'
-                ).all(`%${focusedValue}%`);
+                const focusedOption = interaction.options.getFocused(true);
+                const query = (focusedOption.value || '').toString().trim();
 
-                const choices = matchedItems
-                    .filter(item => item && item.name)
+                let matchedItems = [];
+                try {
+                    matchedItems = db.prepare(
+                        'SELECT name FROM master_items WHERE name LIKE ? LIMIT 25'
+                    ).all(`%${query}%`);
+                } catch (dbErr) {
+                    console.error('DB Autocomplete error:', dbErr);
+                }
+
+                let choices = matchedItems
+                    .filter(item => item && item.name && typeof item.name === 'string' && item.name.trim().length > 0)
                     .map(item => ({
-                        name: item.name.toString().slice(0, 100),
-                        value: item.name.toString().slice(0, 100)
+                        name: item.name.trim().slice(0, 100),
+                        value: item.name.trim().slice(0, 100)
                     }));
 
-                await interaction.respond(choices);
+                // Fallback jika belum ada di DB
+                if (choices.length === 0 && query.length > 0) {
+                    choices = [{ name: `Ketik "${query}" (Item Baru)`, value: query.slice(0, 100) }];
+                } else if (choices.length === 0) {
+                    choices = DEFAULT_CATALOG.map(item => ({ name: item, value: item }));
+                }
+
+                await interaction.respond(choices.slice(0, 25));
             }
         } catch (autoErr) {
             console.error('Error handling Autocomplete:', autoErr);
@@ -636,7 +649,7 @@ client.on('interactionCreate', async interaction => {
                 if (id.startsWith('rec_role_')) {
                     const parts = id.split('_');
                     const roleCode = parts[2];
-                    const partyId = parseInt(parts[3]);
+                    const partyId = parseInt(parts[parts.length - 1]);
 
                     const party = db.prepare('SELECT * FROM party_recruits WHERE id = ?').get(partyId);
                     if (!party || party.status === 'Done' || party.status === 'Cancelled') {
@@ -702,7 +715,7 @@ client.on('interactionCreate', async interaction => {
                 }
 
                 if (id.startsWith('rec_cancel_role_')) {
-                    const partyId = parseInt(id.split('_')[3]);
+                    const partyId = parseInt(id.split('_')[parts.length - 1]);
                     db.prepare('UPDATE party_recruit_slots SET user_id = NULL, sub_job = NULL WHERE party_id = ? AND user_id = ?').run(partyId, interaction.user.id);
 
                     const panelData = await renderRecruitPanel(partyId);
@@ -1063,12 +1076,13 @@ client.on('interactionCreate', async interaction => {
         // D. SELECT MENU HANDLERS
         if (interaction.isStringSelectMenu()) {
             if (interaction.customId.startsWith('select_sal_mark_sold_')) {
-                const partyId = parseInt(interaction.customId.split('_')[4]);
+                const parts = interaction.customId.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 const itemId = parseInt(interaction.values[0]);
                 const item = db.prepare('SELECT * FROM items WHERE id = ?').get(itemId);
 
                 const itemName = item ? item.name : 'Item';
-                const modalTitle = `Set Laku: ${itemName}`.slice(0, 45); // Terpotong otomatis jika > 45 karakter
+                const modalTitle = `Set Laku: ${itemName}`.slice(0, 45);
 
                 const modal = new ModalBuilder()
                     .setCustomId(`modal_sal_set_sold_price_${partyId}_${itemId}`)
@@ -1087,7 +1101,8 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (interaction.customId.startsWith('select_rec_dps_job_')) {
-                const partyId = parseInt(interaction.customId.split('_')[4]);
+                const parts = interaction.customId.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 const selectedJob = interaction.values[0];
 
                 if (selectedJob === 'CUSTOM_JOB') {
@@ -1108,9 +1123,8 @@ client.on('interactionCreate', async interaction => {
             }
 
             if (interaction.customId.startsWith('select_rec_kick_')) {
-                await interaction.deferUpdate();
-
-                const partyId = parseInt(interaction.customId.split('_')[3]);
+                const parts = interaction.customId.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 const targetUserId = interaction.values[0];
 
                 db.prepare('UPDATE party_recruit_slots SET user_id = NULL, sub_job = NULL WHERE party_id = ? AND user_id = ?').run(partyId, targetUserId);
@@ -1122,13 +1136,12 @@ client.on('interactionCreate', async interaction => {
                 const updatedPanel = await renderRecruitPanel(partyId);
                 await message.edit(updatedPanel);
 
-                return interaction.followUp({ content: `✅ <@${targetUserId}> telah dikeluarkan dari party.`, flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: `✅ <@${targetUserId}> telah dikeluarkan dari party.`, flags: MessageFlags.Ephemeral });
             }
 
             if (interaction.customId.startsWith('select_sal_set_cohost_')) {
-                await interaction.deferUpdate();
-
-                const partyId = parseInt(interaction.customId.split('_')[4]);
+                const parts = interaction.customId.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 const selectedCoHost = interaction.values[0];
 
                 db.prepare('UPDATE parties SET co_host_id = ? WHERE id = ?').run(selectedCoHost, partyId);
@@ -1140,13 +1153,12 @@ client.on('interactionCreate', async interaction => {
                 const updatedPanel = await renderSalaryPanel(partyId);
                 await message.edit(updatedPanel);
 
-                return interaction.followUp({ content: `👑 <@${selectedCoHost}> telah dipilih menjadi **Co-Host** panel gaji!`, flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: `👑 <@${selectedCoHost}> telah dipilih menjadi **Co-Host** panel gaji!`, flags: MessageFlags.Ephemeral });
             }
 
             if (interaction.customId.startsWith('select_sal_delete_stamp_')) {
-                await interaction.deferUpdate();
-
-                const partyId = parseInt(interaction.customId.split('_')[4]);
+                const parts = interaction.customId.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 const loanId = parseInt(interaction.values[0]);
 
                 db.prepare('DELETE FROM stamp_loans WHERE id = ?').run(loanId);
@@ -1158,13 +1170,12 @@ client.on('interactionCreate', async interaction => {
                 const updatedPanel = await renderSalaryPanel(partyId);
                 await message.edit(updatedPanel);
 
-                return interaction.followUp({ content: '✅ Catatan Sealstamp Loan berhasil dihapus!', flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: '✅ Catatan Sealstamp Loan berhasil dihapus!', flags: MessageFlags.Ephemeral });
             }
 
             if (interaction.customId.startsWith('select_sal_delete_item_')) {
-                await interaction.deferUpdate();
-
-                const partyId = parseInt(interaction.customId.split('_')[4]);
+                const parts = interaction.customId.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 const itemId = parseInt(interaction.values[0]);
 
                 const item = db.prepare('SELECT * FROM items WHERE id = ?').get(itemId);
@@ -1177,13 +1188,12 @@ client.on('interactionCreate', async interaction => {
                 const updatedPanel = await renderSalaryPanel(partyId);
                 await message.edit(updatedPanel);
 
-                return interaction.followUp({ content: `✅ Item **${item ? item.name : ''}** berhasil dihapus dari panel gaji!`, flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: `✅ Item **${item ? item.name : ''}** berhasil dihapus dari panel gaji!`, flags: MessageFlags.Ephemeral });
             }
 
             if (interaction.customId.startsWith('select_sal_toggle_paid_')) {
-                await interaction.deferUpdate();
-
-                const partyId = parseInt(interaction.customId.split('_')[4]);
+                const parts = interaction.customId.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 const selectedUserIds = interaction.values;
 
                 selectedUserIds.forEach(targetUserId => {
@@ -1203,7 +1213,7 @@ client.on('interactionCreate', async interaction => {
                 const updatedPanel = await renderSalaryPanel(partyId);
                 await message.edit(updatedPanel);
 
-                return interaction.followUp({ content: `✅ Status pembayaran gaji untuk **${selectedUserIds.length} player** yang dipilih telah diperbarui!`, flags: MessageFlags.Ephemeral });
+                return interaction.reply({ content: `✅ Status pembayaran gaji untuk **${selectedUserIds.length} player** yang dipilih telah diperbarui!`, flags: MessageFlags.Ephemeral });
             }
         }
 
@@ -1215,7 +1225,8 @@ client.on('interactionCreate', async interaction => {
             if (id.startsWith('modal_sal_item_')) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-                const partyId = parseInt(id.split('_')[3]);
+                const parts = id.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 const name = interaction.fields.getTextInputValue('item_name').trim();
                 const qty = parseInt(interaction.fields.getTextInputValue('item_qty')) || 1;
                 const price = parseInt(interaction.fields.getTextInputValue('item_price')) || 0;
@@ -1242,16 +1253,19 @@ client.on('interactionCreate', async interaction => {
                 return interaction.followUp({ content: `✅ Item **${qty}x ${name}** berhasil ditambahkan!`, flags: MessageFlags.Ephemeral });
             }
 
+            // PERBAIKAN PARSING INDEX ID PARTY & ITEM UNTUK SET SOLD PRICE!
             if (id.startsWith('modal_sal_set_sold_price_')) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                 const parts = id.split('_');
-                const partyId = parseInt(parts[4]);
-                const itemId = parseInt(parts[5]);
+                const itemId = parseInt(parts[parts.length - 1]);
+                const partyId = parseInt(parts[parts.length - 2]);
                 const price = parseInt(interaction.fields.getTextInputValue('sold_price')) || 0;
 
+                // 1. Update status item ke database
                 db.prepare('UPDATE items SET price = ?, is_sold = 1 WHERE id = ?').run(price, itemId);
 
+                // 2. Fetch & update embed salary panel di atas
                 const party = db.prepare('SELECT * FROM parties WHERE id = ?').get(partyId);
                 if (party) {
                     try {
@@ -1263,7 +1277,9 @@ client.on('interactionCreate', async interaction => {
                                 await message.edit(panelData);
                             }
                         }
-                    } catch (e) {}
+                    } catch (e) {
+                        console.error('Error updating embed panel:', e);
+                    }
                 }
 
                 return interaction.followUp({ content: `✅ Item berhasil di-set **Sudah Laku** dengan harga **${price}g**!`, flags: MessageFlags.Ephemeral });
@@ -1272,7 +1288,8 @@ client.on('interactionCreate', async interaction => {
             if (id.startsWith('modal_rec_dps_custom_')) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-                const partyId = parseInt(id.split('_')[4]);
+                const parts = id.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 const customJob = interaction.fields.getTextInputValue('custom_job_input').trim();
                 return await assignDpsRole(interaction, partyId, customJob);
             }
@@ -1280,7 +1297,8 @@ client.on('interactionCreate', async interaction => {
             if (id.startsWith('modal_rec_edit_title_')) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-                const partyId = parseInt(id.split('_')[4]);
+                const parts = id.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 const newTitle = interaction.fields.getTextInputValue('title_input');
 
                 db.prepare('UPDATE party_recruits SET title = ? WHERE id = ?').run(newTitle, partyId);
@@ -1305,7 +1323,8 @@ client.on('interactionCreate', async interaction => {
             if (id.startsWith('modal_sal_addgold_')) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-                const partyId = parseInt(id.split('_')[3]);
+                const parts = id.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 const amount = parseInt(interaction.fields.getTextInputValue('gold_amount')) || 0;
 
                 db.prepare('INSERT INTO gold_drops (party_id, amount, note) VALUES (?, ?, ?)').run(partyId, amount, 'Drop Raid');
@@ -1330,7 +1349,8 @@ client.on('interactionCreate', async interaction => {
             if (id.startsWith('modal_sal_stamp_')) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-                const partyId = parseInt(id.split('_')[3]);
+                const parts = id.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
                 let inputUser = interaction.fields.getTextInputValue('user_id').trim();
                 const stamps = parseInt(interaction.fields.getTextInputValue('stamp_count')) || 1;
                 
