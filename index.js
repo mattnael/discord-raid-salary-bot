@@ -218,12 +218,13 @@ client.once('clientReady', async () => {
     }
 });
 
-// Helper Format Tag User
+// Helper Format Tag User Aman
 function formatUser(userId) {
     if (!userId) return '';
-    if (/^\d+$/.test(userId)) return `<@${userId}>`;
-    if (!userId.startsWith('@')) return `@${userId}`;
-    return userId;
+    const str = String(userId).trim();
+    if (/^\d+$/.test(str)) return `<@${str}>`;
+    if (!str.startsWith('@')) return `@${str}`;
+    return str;
 }
 
 // Helper Assign DPS Role
@@ -239,7 +240,7 @@ async function assignDpsRole(interaction, partyId, jobName) {
     }
 
     const allSlots = db.prepare('SELECT * FROM party_recruit_slots WHERE party_id = ?').all(partyId);
-    const existingUserSlot = allSlots.find(s => s.user_id === interaction.user.id);
+    const existingUserSlot = allSlots.find(s => String(s.user_id) === String(interaction.user.id));
     const uniqueFilled = new Set(allSlots.filter(s => s.user_id !== null).map(s => s.user_id));
 
     if (!existingUserSlot && uniqueFilled.size >= 8) {
@@ -350,6 +351,8 @@ async function renderRecruitPanel(partyId) {
 // ==========================================
 async function renderSalaryPanel(partyId, isClosed = false) {
     const party = db.prepare('SELECT * FROM parties WHERE id = ?').get(partyId);
+    if (!party) return { content: '❌ Data party tidak ditemukan.' };
+
     const items = db.prepare('SELECT * FROM items WHERE party_id = ?').all(partyId);
     const loans = db.prepare('SELECT * FROM stamp_loans WHERE party_id = ?').all(partyId);
     const drops = db.prepare('SELECT * FROM gold_drops WHERE party_id = ?').all(partyId);
@@ -407,7 +410,7 @@ async function renderSalaryPanel(partyId, isClosed = false) {
 
     if (cappedUserIds.length > 0) {
         cappedUserIds.forEach(userId => {
-            const userLoans = loans.filter(l => l.user_id === userId);
+            const userLoans = loans.filter(l => String(l.user_id) === String(userId));
             let stampRefund = 0;
             userLoans.forEach(l => {
                 const rate = l.cost_per_stamp !== undefined ? l.cost_per_stamp : 5;
@@ -476,7 +479,7 @@ async function renderSalaryPanel(partyId, isClosed = false) {
 // 3. MAIN INTERACTION HANDLER
 // ==========================================
 client.on('interactionCreate', async interaction => {
-    // A. AUTOCOMPLETE HANDLER (/add-item) - FIXED & BULLETPROOF
+    // A. AUTOCOMPLETE HANDLER (/add-item)
     if (interaction.isAutocomplete()) {
         try {
             if (interaction.commandName === 'add-item') {
@@ -486,7 +489,7 @@ client.on('interactionCreate', async interaction => {
                 let matchedItems = [];
                 try {
                     matchedItems = db.prepare(
-                        'SELECT name FROM master_items WHERE name LIKE ? LIMIT 25'
+                        'SELECT DISTINCT name FROM master_items WHERE name LIKE ? LIMIT 25'
                     ).all(`%${query}%`);
                 } catch (dbErr) {
                     console.error('DB Autocomplete error:', dbErr);
@@ -499,7 +502,6 @@ client.on('interactionCreate', async interaction => {
                         value: item.name.trim().slice(0, 100)
                     }));
 
-                // Fallback jika belum ada di DB
                 if (choices.length === 0 && query.length > 0) {
                     choices = [{ name: `Ketik "${query}" (Item Baru)`, value: query.slice(0, 100) }];
                 } else if (choices.length === 0) {
@@ -561,7 +563,7 @@ client.on('interactionCreate', async interaction => {
                     const parentMsg = await interaction.channel.fetchStarterMessage().catch(() => null);
                     if (parentMsg) {
                         const recruitParty = db.prepare('SELECT * FROM party_recruits WHERE message_id = ?').get(parentMsg.id);
-                        if (recruitParty && recruitParty.host_id !== interaction.user.id) {
+                        if (recruitParty && String(recruitParty.host_id) !== String(interaction.user.id)) {
                             return interaction.reply({ 
                                 content: `❌ Hanya Host (<@${recruitParty.host_id}>) yang berhak membuat Salary Panel untuk party ini!`, 
                                 flags: MessageFlags.Ephemeral 
@@ -581,62 +583,86 @@ client.on('interactionCreate', async interaction => {
                 db.prepare('UPDATE parties SET message_id = ? WHERE id = ?').run(msg.id, partyId);
             }
 
-            // --- SLASH COMMAND: /add-item ---
+            // --- SLASH COMMAND: /add-item (PENANGANAN EROR ISOLASI) ---
             if (interaction.commandName === 'add-item') {
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-                const isThread = interaction.channel?.isThread() ?? false;
-                let party = db.prepare('SELECT * FROM parties WHERE channel_id = ? AND status != "CLOSED" ORDER BY id DESC').get(interaction.channelId);
-
-                if (!party && isThread && interaction.channel) {
-                    party = db.prepare('SELECT * FROM parties WHERE channel_id = ? AND status != "CLOSED" ORDER BY id DESC').get(interaction.channel.id);
-                }
-
-                if (!party) {
-                    return interaction.followUp({
-                        content: '❌ Sesi Salary Panel aktif tidak ditemukan di channel/thread ini!',
-                        flags: MessageFlags.Ephemeral
-                    });
-                }
-
-                const isHostOrCoHost = (interaction.user.id === party.host_id) || (party.co_host_id && interaction.user.id === party.co_host_id);
-                if (!isHostOrCoHost) {
-                    return interaction.followUp({
-                        content: `❌ Hanya Host (<@${party.host_id}>) atau Co-Host yang dapat menambah item!`,
-                        flags: MessageFlags.Ephemeral
-                    });
-                }
-
-                const name = interaction.options.getString('name').trim();
-                const qty = interaction.options.getInteger('qty') || 1;
-                const price = interaction.options.getInteger('price') || 0;
-                const isSold = price > 0 ? 1 : 0;
-
-                // 1. Simpan item ke DB party
-                db.prepare('INSERT INTO items (party_id, name, qty, price, is_sold) VALUES (?, ?, ?, ?, ?)').run(party.id, name, qty, price, isSold);
-
-                // 2. Auto-learn ke Katalog Master_Items DB
-                try { db.prepare('INSERT OR IGNORE INTO master_items (name) VALUES (?)').run(name); } catch(e){}
-
-                // 3. Update Embed Panel
                 try {
-                    const channel = await client.channels.fetch(party.channel_id).catch(() => null);
-                    if (channel) {
-                        const message = await channel.messages.fetch(party.message_id).catch(() => null);
-                        if (message) {
-                            const panelData = await renderSalaryPanel(party.id);
-                            await message.edit(panelData);
+                    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                    const targetChannelId = interaction.channelId;
+                    let party = db.prepare('SELECT * FROM parties WHERE channel_id = ? AND status != "CLOSED" ORDER BY id DESC').get(targetChannelId);
+
+                    if (!party && interaction.channel?.isThread()) {
+                        const parentId = interaction.channel.parentId;
+                        if (parentId) {
+                            party = db.prepare('SELECT * FROM parties WHERE channel_id = ? AND status != "CLOSED" ORDER BY id DESC').get(parentId);
                         }
                     }
-                } catch (fetchErr) {
-                    console.error('Gagal update embed panel:', fetchErr);
-                }
 
-                const statusText = isSold ? `Sudah Laku (${price}g)` : 'Belum Laku';
-                return interaction.followUp({
-                    content: `✅ Item **${qty}x ${name}** [${statusText}] berhasil ditambahkan ke panel salary!`,
-                    flags: MessageFlags.Ephemeral
-                });
+                    if (!party) {
+                        return await interaction.followUp({
+                            content: '❌ Sesi Salary Panel aktif tidak ditemukan di channel/thread ini!',
+                            flags: MessageFlags.Ephemeral
+                        });
+                    }
+
+                    const currentUserId = String(interaction.user.id);
+                    const hostId = String(party.host_id);
+                    const coHostId = party.co_host_id ? String(party.co_host_id) : null;
+
+                    const isHostOrCoHost = (currentUserId === hostId) || (coHostId && currentUserId === coHostId);
+                    if (!isHostOrCoHost) {
+                        return await interaction.followUp({
+                            content: `❌ Hanya Host (<@${hostId}>) atau Co-Host yang dapat menambah item!`,
+                            flags: MessageFlags.Ephemeral
+                        });
+                    }
+
+                    const rawName = interaction.options.getString('name');
+                    if (!rawName || !rawName.trim()) {
+                        return await interaction.followUp({
+                            content: '❌ Nama item tidak boleh kosong!',
+                            flags: MessageFlags.Ephemeral
+                        });
+                    }
+                    const name = rawName.trim();
+                    const qty = interaction.options.getInteger('qty') ?? 1;
+                    const price = interaction.options.getInteger('price') ?? 0;
+                    const isSold = price > 0 ? 1 : 0;
+
+                    // 1. Simpan item ke DB party
+                    db.prepare('INSERT INTO items (party_id, name, qty, price, is_sold) VALUES (?, ?, ?, ?, ?)').run(party.id, name, qty, price, isSold);
+
+                    // 2. Auto-learn ke Katalog Master_Items DB
+                    try {
+                        db.prepare('INSERT OR IGNORE INTO master_items (name) VALUES (?)').run(name);
+                    } catch (e) {}
+
+                    // 3. Update Embed Panel
+                    try {
+                        const channel = await client.channels.fetch(party.channel_id).catch(() => null);
+                        if (channel) {
+                            const message = await channel.messages.fetch(party.message_id).catch(() => null);
+                            if (message) {
+                                const panelData = await renderSalaryPanel(party.id);
+                                await message.edit(panelData);
+                            }
+                        }
+                    } catch (fetchErr) {
+                        console.error('Gagal update embed panel:', fetchErr);
+                    }
+
+                    const statusText = isSold ? `Sudah Laku (${price}g)` : 'Belum Laku';
+                    return await interaction.followUp({
+                        content: `✅ Item **${qty}x ${name}** [${statusText}] berhasil ditambahkan ke panel salary!`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                } catch (addErr) {
+                    console.error('Error detail di /add-item:', addErr);
+                    return await interaction.followUp({
+                        content: `❌ Gagal menambahkan item: ${addErr.message || 'Terjadi kesalahan sistem'}`,
+                        flags: MessageFlags.Ephemeral
+                    }).catch(() => {});
+                }
             }
         }
 
@@ -692,7 +718,7 @@ client.on('interactionCreate', async interaction => {
                     }
 
                     const allSlots = db.prepare('SELECT * FROM party_recruit_slots WHERE party_id = ?').all(partyId);
-                    const existingUserSlot = allSlots.find(s => s.user_id === interaction.user.id);
+                    const existingUserSlot = allSlots.find(s => String(s.user_id) === String(interaction.user.id));
                     const uniqueFilled = new Set(allSlots.filter(s => s.user_id !== null).map(s => s.user_id));
 
                     if (!existingUserSlot && uniqueFilled.size >= 8) {
@@ -715,7 +741,8 @@ client.on('interactionCreate', async interaction => {
                 }
 
                 if (id.startsWith('rec_cancel_role_')) {
-                    const partyId = parseInt(id.split('_')[parts.length - 1]);
+                    const parts = id.split('_');
+                    const partyId = parseInt(parts[parts.length - 1]);
                     db.prepare('UPDATE party_recruit_slots SET user_id = NULL, sub_job = NULL WHERE party_id = ? AND user_id = ?').run(partyId, interaction.user.id);
 
                     const panelData = await renderRecruitPanel(partyId);
@@ -727,7 +754,7 @@ client.on('interactionCreate', async interaction => {
 
                 if (!party) return;
 
-                const isHostOrCoHost = (interaction.user.id === party.host_id) || (party.co_host_id && interaction.user.id === party.co_host_id);
+                const isHostOrCoHost = (String(interaction.user.id) === String(party.host_id)) || (party.co_host_id && String(interaction.user.id) === String(party.co_host_id));
                 if (!isHostOrCoHost) {
                     return interaction.reply({ content: `❌ Hanya Host (<@${party.host_id}>) atau Co-Host yang dapat mengatur panel ini.`, flags: MessageFlags.Ephemeral });
                 }
@@ -848,7 +875,7 @@ client.on('interactionCreate', async interaction => {
                     return interaction.reply({ content: '🔒 Sesi party ini sudah ditutup.', flags: MessageFlags.Ephemeral });
                 }
 
-                const isHostOrCoHost = (interaction.user.id === party.host_id) || (party.co_host_id && interaction.user.id === party.co_host_id);
+                const isHostOrCoHost = (String(interaction.user.id) === String(party.host_id)) || (party.co_host_id && String(interaction.user.id) === String(party.co_host_id));
                 if (!isHostOrCoHost) {
                     return interaction.reply({ content: `❌ Hanya Host (<@${party.host_id}>) atau Co-Host yang dapat mengatur panel ini.`, flags: MessageFlags.Ephemeral });
                 }
@@ -951,7 +978,7 @@ client.on('interactionCreate', async interaction => {
                         const rate = l.cost_per_stamp !== undefined ? l.cost_per_stamp : 5;
                         const cost = l.stamps * rate;
                         const costFormatted = Number.isInteger(cost) ? cost : parseFloat(cost.toFixed(2));
-                        let displayName = l.user_id.replace(/^<@!?|>$/g, '');
+                        let displayName = String(l.user_id).replace(/^<@!?|>$/g, '');
                         const cleanDigits = displayName.replace(/\D/g, '');
 
                         if (/^\d+$/.test(cleanDigits) && interaction.guild) {
@@ -988,8 +1015,8 @@ client.on('interactionCreate', async interaction => {
                         .setPlaceholder('Pilih member party untuk dijadikan Co-Host...');
 
                     for (const uId of cappedUserIds) {
-                        let displayName = `User: ${uId.replace(/^<@!?|>$/g, '')}`;
-                        const cleanDigits = uId.replace(/[<@!>]/g, '');
+                        let displayName = `User: ${String(uId).replace(/^<@!?|>$/g, '')}`;
+                        const cleanDigits = String(uId).replace(/[<@!>]/g, '');
                         if (/^\d+$/.test(cleanDigits) && interaction.guild) {
                             try {
                                 const member = await interaction.guild.members.fetch(cleanDigits);
@@ -1000,7 +1027,7 @@ client.on('interactionCreate', async interaction => {
                         selectMenu.addOptions(
                             new StringSelectMenuOptionBuilder()
                                 .setLabel(displayName.slice(0, 100))
-                                .setValue(uId)
+                                .setValue(String(uId))
                         );
                     }
 
@@ -1018,7 +1045,7 @@ client.on('interactionCreate', async interaction => {
                         return interaction.reply({ content: '❌ Belum ada player di Status Gaji.', flags: MessageFlags.Ephemeral });
                     }
 
-                    const paidUsers = db.prepare('SELECT user_id FROM salary_paid_users WHERE party_id = ?').all(partyId).map(p => p.user_id);
+                    const paidUsers = db.prepare('SELECT user_id FROM salary_paid_users WHERE party_id = ?').all(partyId).map(p => String(p.user_id));
 
                     const selectMenu = new StringSelectMenuBuilder()
                         .setCustomId(`select_sal_toggle_paid_${partyId}`)
@@ -1027,8 +1054,8 @@ client.on('interactionCreate', async interaction => {
                         .setMaxValues(cappedUserIds.length);
 
                     for (const uId of cappedUserIds) {
-                        let displayName = `User: ${uId.replace(/^<@!?|>$/g, '')}`;
-                        const cleanDigits = uId.replace(/[<@!>]/g, '');
+                        let displayName = `User: ${String(uId).replace(/^<@!?|>$/g, '')}`;
+                        const cleanDigits = String(uId).replace(/[<@!>]/g, '');
                         if (/^\d+$/.test(cleanDigits) && interaction.guild) {
                             try {
                                 const member = await interaction.guild.members.fetch(cleanDigits);
@@ -1036,11 +1063,11 @@ client.on('interactionCreate', async interaction => {
                             } catch (e) {}
                         }
 
-                        const isPaid = paidUsers.includes(uId);
+                        const isPaid = paidUsers.includes(String(uId));
                         selectMenu.addOptions(
                             new StringSelectMenuOptionBuilder()
                                 .setLabel(displayName.slice(0, 100))
-                                .setValue(uId)
+                                .setValue(String(uId))
                                 .setDescription(`Status saat ini: ${isPaid ? 'Sudah Dibayar (✅)' : 'Belum Dibayar (❌)'}`)
                         );
                     }
@@ -1253,7 +1280,7 @@ client.on('interactionCreate', async interaction => {
                 return interaction.followUp({ content: `✅ Item **${qty}x ${name}** berhasil ditambahkan!`, flags: MessageFlags.Ephemeral });
             }
 
-            // PERBAIKAN PARSING INDEX ID PARTY & ITEM UNTUK SET SOLD PRICE!
+            // MODAL SET SOLD PRICE
             if (id.startsWith('modal_sal_set_sold_price_')) {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
@@ -1262,10 +1289,8 @@ client.on('interactionCreate', async interaction => {
                 const partyId = parseInt(parts[parts.length - 2]);
                 const price = parseInt(interaction.fields.getTextInputValue('sold_price')) || 0;
 
-                // 1. Update status item ke database
                 db.prepare('UPDATE items SET price = ?, is_sold = 1 WHERE id = ?').run(price, itemId);
 
-                // 2. Fetch & update embed salary panel di atas
                 const party = db.prepare('SELECT * FROM parties WHERE id = ?').get(partyId);
                 if (party) {
                     try {
