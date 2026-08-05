@@ -158,7 +158,7 @@ const client = new Client({
     }
 });
 
-// Register Slash Commands (Termasuk /add-item)
+// Register Slash Commands
 const commands = [
     new SlashCommandBuilder()
         .setName('createparty')
@@ -212,7 +212,7 @@ client.once('clientReady', async () => {
     const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
     try {
         await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), { body: commands });
-        console.log('✅ Slash Commands (/createparty, /set-salary, /set-salary-channel, /add-item) Berhasil Didaftarkan!');
+        console.log('✅ Slash Commands Berhasil Didaftarkan!');
     } catch (error) {
         console.error('❌ Gagal mendaftarkan slash command:', error);
     }
@@ -231,11 +231,11 @@ async function assignDpsRole(interaction, partyId, jobName) {
     const party = db.prepare('SELECT * FROM party_recruits WHERE id = ?').get(partyId);
     if (!party || party.status === 'Done' || party.status === 'Cancelled') {
         const msg = '🔒 Party ini sudah selesai atau dibatalkan.';
-        return interaction.replied || interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+        return interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
     }
     if (party.status === 'Locked') {
         const msg = '🔒 Party sedang dikunci oleh Host.';
-        return interaction.replied || interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+        return interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
     }
 
     const allSlots = db.prepare('SELECT * FROM party_recruit_slots WHERE party_id = ?').all(partyId);
@@ -244,13 +244,13 @@ async function assignDpsRole(interaction, partyId, jobName) {
 
     if (!existingUserSlot && uniqueFilled.size >= 8) {
         const msg = '❌ Party sudah penuh (8/8 Player)!';
-        return interaction.replied || interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+        return interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
     }
 
     const availableSlot = allSlots.find(s => s.role_code === 'DPS' && s.user_id === null);
     if (!availableSlot && (!existingUserSlot || existingUserSlot.role_code !== 'DPS')) {
         const msg = '❌ Slot role **DPS** sudah penuh (Max 3 DPS)!';
-        return interaction.replied || interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
+        return interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
     }
 
     if (existingUserSlot) {
@@ -266,8 +266,8 @@ async function assignDpsRole(interaction, partyId, jobName) {
     await message.edit(panelData);
 
     const successMsg = `✅ Kamu berhasil join sebagai **DPS (${jobName})**!`;
-    if (interaction.isModalSubmit()) {
-        return interaction.reply({ content: successMsg, flags: MessageFlags.Ephemeral });
+    if (interaction.deferred) {
+        return interaction.followUp({ content: successMsg, flags: MessageFlags.Ephemeral });
     } else {
         return interaction.update({ content: successMsg, components: [] });
     }
@@ -554,8 +554,10 @@ client.on('interactionCreate', async interaction => {
                 db.prepare('UPDATE parties SET message_id = ? WHERE id = ?').run(msg.id, partyId);
             }
 
-            // --- SLASH COMMAND OPSI 1: /add-item (DENGAN AUTOCOMPLETE) ---
+            // --- SLASH COMMAND: /add-item (DENGAN DEFER UNTUK MENCEGAH TIMEOUT) ---
             if (interaction.commandName === 'add-item') {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
                 let party = db.prepare('SELECT * FROM parties WHERE channel_id = ? AND status != "CLOSED" ORDER BY id DESC').get(interaction.channelId);
 
                 if (!party && interaction.channel.isThread()) {
@@ -563,7 +565,7 @@ client.on('interactionCreate', async interaction => {
                 }
 
                 if (!party) {
-                    return interaction.reply({
+                    return interaction.followUp({
                         content: '❌ Sesi Salary Panel aktif tidak ditemukan di channel/thread ini!',
                         flags: MessageFlags.Ephemeral
                     });
@@ -571,7 +573,7 @@ client.on('interactionCreate', async interaction => {
 
                 const isHostOrCoHost = (interaction.user.id === party.host_id) || (party.co_host_id && interaction.user.id === party.co_host_id);
                 if (!isHostOrCoHost) {
-                    return interaction.reply({
+                    return interaction.followUp({
                         content: `❌ Hanya Host (<@${party.host_id}>) atau Co-Host yang dapat menambah item!`,
                         flags: MessageFlags.Ephemeral
                     });
@@ -589,13 +591,17 @@ client.on('interactionCreate', async interaction => {
                 try { db.prepare('INSERT OR IGNORE INTO master_items (name) VALUES (?)').run(name); } catch(e){}
 
                 // 3. Update Embed Panel
-                const channel = await client.channels.fetch(party.channel_id);
-                const message = await channel.messages.fetch(party.message_id);
-                const panelData = await renderSalaryPanel(party.id);
-                await message.edit(panelData);
+                const channel = await client.channels.fetch(party.channel_id).catch(() => null);
+                if (channel) {
+                    const message = await channel.messages.fetch(party.message_id).catch(() => null);
+                    if (message) {
+                        const panelData = await renderSalaryPanel(party.id);
+                        await message.edit(panelData);
+                    }
+                }
 
                 const statusText = isSold ? `Sudah Laku (${price}g)` : 'Belum Laku';
-                return interaction.reply({
+                return interaction.followUp({
                     content: `✅ Item **${qty}x ${name}** [${statusText}] berhasil ditambahkan ke panel salary!`,
                     flags: MessageFlags.Ephemeral
                 });
@@ -887,7 +893,15 @@ client.on('interactionCreate', async interaction => {
                     modal.addComponents(
                         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('user_id').setLabel('Nickname / Tag / User ID Player').setStyle(TextInputStyle.Short).setRequired(true)),
                         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('stamp_count').setLabel('Jumlah Stamp').setStyle(TextInputStyle.Short).setValue('1').setRequired(true)),
-                        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('stamp_rate').setLabel('Harga per Stamp (bisa desimal contoh : 4.5)').setStyle(TextInputStyle.Short).setValue('5').setRequired(false))
+                        new ActionRowBuilder().addComponents(
+                            new TextInputBuilder()
+                                .setCustomId('stamp_rate')
+                                .setLabel('Harga per Stamp (Gold)')
+                                .setPlaceholder('Bisa desimal, contoh: 4.5')
+                                .setStyle(TextInputStyle.Short)
+                                .setValue('5')
+                                .setRequired(false)
+                        )
                     );
                     return interaction.showModal(modal);
                 }
@@ -1079,7 +1093,7 @@ client.on('interactionCreate', async interaction => {
                 const updatedPanel = await renderRecruitPanel(partyId);
                 await message.edit(updatedPanel);
 
-                return interaction.update({ content: `✅ <@${targetUserId}> telah dikeluarkan dari party.`, components: [] });
+                return interaction.update({ content: `✅ <@${targetUserId}> telah dikeluarkan dari party.` });
             }
 
             if (interaction.customId.startsWith('select_sal_set_cohost_')) {
@@ -1095,7 +1109,7 @@ client.on('interactionCreate', async interaction => {
                 const updatedPanel = await renderSalaryPanel(partyId);
                 await message.edit(updatedPanel);
 
-                return interaction.update({ content: `👑 <@${selectedCoHost}> telah dipilih menjadi **Co-Host** panel gaji!`, components: [] });
+                return interaction.update({ content: `👑 <@${selectedCoHost}> telah dipilih menjadi **Co-Host** panel gaji!` });
             }
 
             if (interaction.customId.startsWith('select_sal_delete_stamp_')) {
@@ -1111,7 +1125,7 @@ client.on('interactionCreate', async interaction => {
                 const updatedPanel = await renderSalaryPanel(partyId);
                 await message.edit(updatedPanel);
 
-                return interaction.update({ content: '✅ Catatan Sealstamp Loan berhasil dihapus!', components: [] });
+                return interaction.update({ content: '✅ Catatan Sealstamp Loan berhasil dihapus!' });
             }
 
             if (interaction.customId.startsWith('select_sal_delete_item_')) {
@@ -1128,7 +1142,7 @@ client.on('interactionCreate', async interaction => {
                 const updatedPanel = await renderSalaryPanel(partyId);
                 await message.edit(updatedPanel);
 
-                return interaction.update({ content: `✅ Item **${item ? item.name : ''}** berhasil dihapus dari panel gaji!`, components: [] });
+                return interaction.update({ content: `✅ Item **${item ? item.name : ''}** berhasil dihapus dari panel gaji!` });
             }
 
             if (interaction.customId.startsWith('select_sal_toggle_paid_')) {
@@ -1152,7 +1166,7 @@ client.on('interactionCreate', async interaction => {
                 const updatedPanel = await renderSalaryPanel(partyId);
                 await message.edit(updatedPanel);
 
-                return interaction.update({ content: `✅ Status pembayaran gaji untuk **${selectedUserIds.length} player** yang dipilih telah diperbarui!`, components: [] });
+                return interaction.update({ content: `✅ Status pembayaran gaji untuk **${selectedUserIds.length} player** yang dipilih telah diperbarui!` });
             }
         }
 
@@ -1160,7 +1174,7 @@ client.on('interactionCreate', async interaction => {
         if (interaction.isModalSubmit()) {
             const id = interaction.customId;
 
-            // HANDLER SUBMIT MODAL ITEM (AUTO-LEARN KE MASTER_ITEMS DB)
+            // HANDLER SUBMIT MODAL ITEM
             if (id.startsWith('modal_sal_item_')) {
                 const partyId = parseInt(id.split('_')[3]);
                 const name = interaction.fields.getTextInputValue('item_name').trim();
@@ -1168,10 +1182,8 @@ client.on('interactionCreate', async interaction => {
                 const price = parseInt(interaction.fields.getTextInputValue('item_price')) || 0;
                 const isSold = price > 0 ? 1 : 0;
 
-                // 1. Simpan ke database item party
                 db.prepare('INSERT INTO items (party_id, name, qty, price, is_sold) VALUES (?, ?, ?, ?, ?)').run(partyId, name, qty, price, isSold);
 
-                // 2. Auto-learn simpan ke master_items katalog DB
                 try { db.prepare('INSERT OR IGNORE INTO master_items (name) VALUES (?)').run(name); } catch(e){}
 
                 const party = db.prepare('SELECT * FROM parties WHERE id = ?').get(partyId);
@@ -1229,7 +1241,6 @@ client.on('interactionCreate', async interaction => {
                 let inputUser = interaction.fields.getTextInputValue('user_id').trim();
                 const stamps = parseInt(interaction.fields.getTextInputValue('stamp_count')) || 1;
                 
-                // Menerima rate stamp dinamis & fleksibel koma/titik desimal
                 const rawRate = interaction.fields.getTextInputValue('stamp_rate');
                 const parsedRate = rawRate ? parseFloat(rawRate.replace(',', '.')) : 5.0;
                 const costPerStamp = isNaN(parsedRate) ? 5.0 : parsedRate;
