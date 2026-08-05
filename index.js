@@ -191,18 +191,18 @@ const commands = [
         .setDescription('Tambah item loot ke panel salary aktif di channel/thread ini')
         .addStringOption(opt =>
             opt.setName('name')
-               .setDescription('Nama item loot (Autocomplete rekomendasi dari Katalog DB)')
+               .setDescription('Nama item (Rekomendasi dari Katalog DB atau ketik item baru)')
                .setAutocomplete(true)
                .setRequired(true)
         )
         .addIntegerOption(opt =>
             opt.setName('qty')
-               .setDescription('Jumlah item (Default: 1)')
+               .setDescription('Jumlah item (Otomatis bernilai 1 jika dikosongkan)')
                .setRequired(false)
         )
         .addIntegerOption(opt =>
             opt.setName('price')
-               .setDescription('Harga Gold (Isi 0 jika belum laku)')
+               .setDescription('Harga Gold (Kosongkan/Isi 0 jika masuk daftar Belum Laku)')
                .setRequired(false)
         )
 ].map(cmd => cmd.toJSON());
@@ -530,7 +530,7 @@ client.on('interactionCreate', async interaction => {
             if (interaction.commandName === 'set-salary') {
                 const title = interaction.options.getString('title');
 
-                if (interaction.channel.isThread()) {
+                if (interaction.channel?.isThread()) {
                     const parentMsg = await interaction.channel.fetchStarterMessage().catch(() => null);
                     if (parentMsg) {
                         const recruitParty = db.prepare('SELECT * FROM party_recruits WHERE message_id = ?').get(parentMsg.id);
@@ -554,13 +554,14 @@ client.on('interactionCreate', async interaction => {
                 db.prepare('UPDATE parties SET message_id = ? WHERE id = ?').run(msg.id, partyId);
             }
 
-            // --- SLASH COMMAND: /add-item (DENGAN DEFER UNTUK MENCEGAH TIMEOUT) ---
+            // --- SLASH COMMAND: /add-item (ANTI-STUCK & SAFE DEFER) ---
             if (interaction.commandName === 'add-item') {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
+                const isThread = interaction.channel?.isThread() ?? false;
                 let party = db.prepare('SELECT * FROM parties WHERE channel_id = ? AND status != "CLOSED" ORDER BY id DESC').get(interaction.channelId);
 
-                if (!party && interaction.channel.isThread()) {
+                if (!party && isThread && interaction.channel) {
                     party = db.prepare('SELECT * FROM parties WHERE channel_id = ? AND status != "CLOSED" ORDER BY id DESC').get(interaction.channel.id);
                 }
 
@@ -591,13 +592,17 @@ client.on('interactionCreate', async interaction => {
                 try { db.prepare('INSERT OR IGNORE INTO master_items (name) VALUES (?)').run(name); } catch(e){}
 
                 // 3. Update Embed Panel
-                const channel = await client.channels.fetch(party.channel_id).catch(() => null);
-                if (channel) {
-                    const message = await channel.messages.fetch(party.message_id).catch(() => null);
-                    if (message) {
-                        const panelData = await renderSalaryPanel(party.id);
-                        await message.edit(panelData);
+                try {
+                    const channel = await client.channels.fetch(party.channel_id).catch(() => null);
+                    if (channel) {
+                        const message = await channel.messages.fetch(party.message_id).catch(() => null);
+                        if (message) {
+                            const panelData = await renderSalaryPanel(party.id);
+                            await message.edit(panelData);
+                        }
                     }
+                } catch (fetchErr) {
+                    console.error('Gagal update embed panel:', fetchErr);
                 }
 
                 const statusText = isSold ? `Sudah Laku (${price}g)` : 'Belum Laku';
@@ -1027,9 +1032,9 @@ client.on('interactionCreate', async interaction => {
 
                     try {
                         let targetThread = null;
-                        if (interaction.channel.isThread()) {
+                        if (interaction.channel?.isThread()) {
                             targetThread = interaction.channel;
-                        } else if (interaction.message.thread) {
+                        } else if (interaction.message?.thread) {
                             targetThread = interaction.message.thread;
                         }
 
@@ -1265,6 +1270,13 @@ client.on('interactionCreate', async interaction => {
         }
     } catch (err) {
         console.error('Error handling interaction:', err);
+        if (interaction.isRepliable()) {
+            if (interaction.deferred || interaction.replied) {
+                await interaction.followUp({ content: '❌ Terjadi kesalahan internal saat memproses perintah.', flags: MessageFlags.Ephemeral }).catch(() => {});
+            } else {
+                await interaction.reply({ content: '❌ Terjadi kesalahan internal saat memproses perintah.', flags: MessageFlags.Ephemeral }).catch(() => {});
+            }
+        }
     }
 });
 
