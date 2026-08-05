@@ -887,7 +887,7 @@ client.on('interactionCreate', async interaction => {
                     modal.addComponents(
                         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('user_id').setLabel('Nickname / Tag / User ID Player').setStyle(TextInputStyle.Short).setRequired(true)),
                         new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('stamp_count').setLabel('Jumlah Stamp').setStyle(TextInputStyle.Short).setValue('1').setRequired(true)),
-                        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('stamp_rate').setLabel('Harga per Stamp (Gold, bisa desimal contoh : 4.5)').setStyle(TextInputStyle.Short).setValue('5').setRequired(false))
+                        new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('stamp_rate').setLabel('Harga per Stamp (bisa desimal contoh : 4.5)').setStyle(TextInputStyle.Short).setValue('5').setRequired(false))
                     );
                     return interaction.showModal(modal);
                 }
