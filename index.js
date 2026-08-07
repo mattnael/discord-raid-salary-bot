@@ -774,7 +774,7 @@ client.on('interactionCreate', async interaction => {
                     return await interaction.update(panelData);
                 }
 
-                // FITUR ADD MEMBER (HOST TAMBAH PLAYER MANUAL)
+                // FITUR ADD MEMBER (HOST TAMBAH PLAYER MANUAL - LABEL UTAMA FIXED < 45 CHARS)
                 if (id.startsWith('rec_add_member_')) {
                     const modal = new ModalBuilder()
                         .setCustomId(`modal_rec_add_member_${partyId}`)
@@ -782,20 +782,20 @@ client.on('interactionCreate', async interaction => {
 
                     const userInput = new TextInputBuilder()
                         .setCustomId('user_input')
-                        .setLabel('Player (Mention @user / Nickname / ID)')
+                        .setLabel('Player (@user / Nickname / User ID)')
                         .setStyle(TextInputStyle.Short)
                         .setRequired(true);
 
                     const roleInput = new TextInputBuilder()
                         .setCustomId('role_code')
-                        .setLabel('Role (FU / PR / MC / SM / MT / ICE / ACRO / DPS)')
+                        .setLabel('Role / Posisi') // FIXED: < 45 Karakter!
+                        .setPlaceholder('Contoh: FU, PR, MC, SM, MT, ICE, ACRO, atau DPS')
                         .setStyle(TextInputStyle.Short)
-                        .setPlaceholder('Contoh: FU atau DPS')
                         .setRequired(true);
 
                     const subJobInput = new TextInputBuilder()
                         .setCustomId('sub_job')
-                        .setLabel('Sub-Job / Class (Khusus DPS / Opsional)')
+                        .setLabel('Sub-Job / Class (Opsional)')
                         .setStyle(TextInputStyle.Short)
                         .setPlaceholder('Contoh: Crusader, Saleana, dll.')
                         .setRequired(false);
