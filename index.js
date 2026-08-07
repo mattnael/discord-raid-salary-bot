@@ -308,39 +308,47 @@ async function renderRecruitPanel(partyId) {
             { name: 'Slot', value: `${totalFilled}/8`, inline: true },
             { name: 'Status', value: statusEmojiText, inline: true }
         )
-        .setFooter({ text: 'Klik tombol role di bawah untuk join' });
+        .setFooter({ 
+            text: party.status === 'Done' ? 'Party Selesai' : party.status === 'Cancelled' ? 'Party Dibatalkan' : 'Klik tombol role di bawah untuk join' 
+        });
 
     const isClosed = party.status === 'Done' || party.status === 'Cancelled';
 
+    // Jika Done / Cancelled, hilangkan semua tombol
+    if (isClosed) {
+        return { content: '', embeds: [embed], components: [] };
+    }
+
     const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`rec_role_FU_${partyId}`).setLabel('Force User').setStyle(ButtonStyle.Primary).setEmoji('🔴').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_PR_${partyId}`).setLabel('Healer').setStyle(ButtonStyle.Primary).setEmoji('🏥').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_MC_${partyId}`).setLabel('Mercenary').setStyle(ButtonStyle.Primary).setEmoji('🪓').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_SM_${partyId}`).setLabel('Swordmaster').setStyle(ButtonStyle.Primary).setEmoji('🗡️').setDisabled(isClosed)
+        new ButtonBuilder().setCustomId(`rec_role_FU_${partyId}`).setLabel('Force User').setStyle(ButtonStyle.Primary).setEmoji('🔴'),
+        new ButtonBuilder().setCustomId(`rec_role_PR_${partyId}`).setLabel('Healer').setStyle(ButtonStyle.Primary).setEmoji('🏥'),
+        new ButtonBuilder().setCustomId(`rec_role_MC_${partyId}`).setLabel('Mercenary').setStyle(ButtonStyle.Primary).setEmoji('🪓'),
+        new ButtonBuilder().setCustomId(`rec_role_SM_${partyId}`).setLabel('Swordmaster').setStyle(ButtonStyle.Primary).setEmoji('🗡️')
     );
 
     const row2 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`rec_role_MT_${partyId}`).setLabel('Tank').setStyle(ButtonStyle.Primary).setEmoji('🛡️').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_ICE_${partyId}`).setLabel('Ice Stack').setStyle(ButtonStyle.Primary).setEmoji('❄️').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_ACRO_${partyId}`).setLabel('Acrobat').setStyle(ButtonStyle.Primary).setEmoji('🎯').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_role_DPS_${partyId}`).setLabel('DPS').setStyle(ButtonStyle.Primary).setEmoji('⚔️').setDisabled(isClosed)
+        new ButtonBuilder().setCustomId(`rec_role_MT_${partyId}`).setLabel('Tank').setStyle(ButtonStyle.Primary).setEmoji('🛡️'),
+        new ButtonBuilder().setCustomId(`rec_role_ICE_${partyId}`).setLabel('Ice Stack').setStyle(ButtonStyle.Primary).setEmoji('❄️'),
+        new ButtonBuilder().setCustomId(`rec_role_ACRO_${partyId}`).setLabel('Acrobat').setStyle(ButtonStyle.Primary).setEmoji('🎯'),
+        new ButtonBuilder().setCustomId(`rec_role_DPS_${partyId}`).setLabel('DPS').setStyle(ButtonStyle.Primary).setEmoji('⚔️')
     );
 
     const row3 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`rec_cancel_role_${partyId}`).setLabel('Cancel My Role').setStyle(ButtonStyle.Secondary).setDisabled(isClosed)
+        new ButtonBuilder().setCustomId(`rec_cancel_role_${partyId}`).setLabel('Cancel My Role').setStyle(ButtonStyle.Secondary)
     );
 
     const lockLabel = party.status === 'Locked' ? 'Unlock Party' : 'Lock Party';
     const row4 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`rec_lock_${partyId}`).setLabel(lockLabel).setStyle(ButtonStyle.Secondary).setEmoji('🔒').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_remove_member_${partyId}`).setLabel('Remove Member').setStyle(ButtonStyle.Danger).setEmoji('⛔').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_done_${partyId}`).setLabel('Done').setStyle(ButtonStyle.Success).setEmoji('✅').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_cancel_run_${partyId}`).setLabel('Cancel Run').setStyle(ButtonStyle.Danger).setEmoji('🗑️').setDisabled(isClosed)
+        new ButtonBuilder().setCustomId(`rec_lock_${partyId}`).setLabel(lockLabel).setStyle(ButtonStyle.Secondary).setEmoji('🔒'),
+        new ButtonBuilder().setCustomId(`rec_remove_member_${partyId}`).setLabel('Remove Member').setStyle(ButtonStyle.Danger).setEmoji('⛔'),
+        new ButtonBuilder().setCustomId(`rec_done_${partyId}`).setLabel('Done').setStyle(ButtonStyle.Success).setEmoji('✅'),
+        new ButtonBuilder().setCustomId(`rec_cancel_run_${partyId}`).setLabel('Cancel Run').setStyle(ButtonStyle.Danger).setEmoji('🗑️')
     );
 
     const row5 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`rec_edit_title_${partyId}`).setLabel('Edit Title').setStyle(ButtonStyle.Secondary).setEmoji('✏️').setDisabled(isClosed),
-        new ButtonBuilder().setCustomId(`rec_notify_${partyId}`).setLabel('Notify Again').setStyle(ButtonStyle.Primary).setEmoji('📣').setDisabled(isClosed)
+        new ButtonBuilder().setCustomId(`rec_add_member_${partyId}`).setLabel('Add Member').setStyle(ButtonStyle.Success).setEmoji('➕'),
+        new ButtonBuilder().setCustomId(`rec_edit_title_${partyId}`).setLabel('Edit Title').setStyle(ButtonStyle.Secondary).setEmoji('✏️'),
+        new ButtonBuilder().setCustomId(`rec_notify_${partyId}`).setLabel('Notify Again').setStyle(ButtonStyle.Primary).setEmoji('📣')
     );
 
     return { content: '@here', embeds: [embed], components: [row1, row2, row3, row4, row5], allowedMentions: { parse: ['everyone'] } };
@@ -583,13 +591,12 @@ client.on('interactionCreate', async interaction => {
                 db.prepare('UPDATE parties SET message_id = ? WHERE id = ?').run(msg.id, partyId);
             }
 
-            // --- SLASH COMMAND: /add-item (PENANGANAN SQLITE FIXED) ---
+            // --- SLASH COMMAND: /add-item ---
             if (interaction.commandName === 'add-item') {
                 try {
                     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
                     const targetChannelId = interaction.channelId;
-                    // FIXED: Penggunaan single quote untuk string literal 'CLOSED' di SQLite!
                     let party = db.prepare("SELECT * FROM parties WHERE channel_id = ? AND status != 'CLOSED' ORDER BY id DESC").get(targetChannelId);
 
                     if (!party && interaction.channel?.isThread()) {
@@ -767,6 +774,42 @@ client.on('interactionCreate', async interaction => {
                     return await interaction.update(panelData);
                 }
 
+                // FITUR ADD MEMBER (HOST TAMBAH PLAYER MANUAL)
+                if (id.startsWith('rec_add_member_')) {
+                    const modal = new ModalBuilder()
+                        .setCustomId(`modal_rec_add_member_${partyId}`)
+                        .setTitle('Tambah Member Party Manual');
+
+                    const userInput = new TextInputBuilder()
+                        .setCustomId('user_input')
+                        .setLabel('Player (Mention @user / Nickname / ID)')
+                        .setStyle(TextInputStyle.Short)
+                        .setRequired(true);
+
+                    const roleInput = new TextInputBuilder()
+                        .setCustomId('role_code')
+                        .setLabel('Role (FU / PR / MC / SM / MT / ICE / ACRO / DPS)')
+                        .setStyle(TextInputStyle.Short)
+                        .setPlaceholder('Contoh: FU atau DPS')
+                        .setRequired(true);
+
+                    const subJobInput = new TextInputBuilder()
+                        .setCustomId('sub_job')
+                        .setLabel('Sub-Job / Class (Khusus DPS / Opsional)')
+                        .setStyle(TextInputStyle.Short)
+                        .setPlaceholder('Contoh: Crusader, Saleana, dll.')
+                        .setRequired(false);
+
+                    modal.addComponents(
+                        new ActionRowBuilder().addComponents(userInput),
+                        new ActionRowBuilder().addComponents(roleInput),
+                        new ActionRowBuilder().addComponents(subJobInput)
+                    );
+
+                    return interaction.showModal(modal);
+                }
+
+                // FITUR KICK / REMOVE MEMBER
                 if (id.startsWith('rec_remove_member_')) {
                     const slots = db.prepare('SELECT DISTINCT user_id FROM party_recruit_slots WHERE party_id = ? AND user_id IS NOT NULL').all(partyId);
                     if (slots.length === 0) {
@@ -786,7 +829,7 @@ client.on('interactionCreate', async interaction => {
 
                         selectMenu.addOptions(
                             new StringSelectMenuOptionBuilder()
-                                .setLabel(displayName)
+                                .setLabel(displayName.slice(0, 100))
                                 .setValue(s.user_id)
                         );
                     }
@@ -1248,6 +1291,81 @@ client.on('interactionCreate', async interaction => {
         // E. MODAL SUBMIT HANDLERS
         if (interaction.isModalSubmit()) {
             const id = interaction.customId;
+
+            // HANDLER SUBMIT ADD MEMBER RECRUITMENT
+            if (id.startsWith('modal_rec_add_member_')) {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                const parts = id.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
+                let inputUser = interaction.fields.getTextInputValue('user_input').trim();
+                let roleInput = interaction.fields.getTextInputValue('role_code').trim().toUpperCase();
+                let subJobInput = interaction.fields.getTextInputValue('sub_job')?.trim() || null;
+
+                // Mapping Alias Role Input Host ke Role Code DB
+                const roleMap = {
+                    'FU': 'FU', 'FORCE USER': 'FU',
+                    'PR': 'PR', 'HEALER': 'PR',
+                    'MC': 'MC', 'MERCENARY': 'MC',
+                    'SM': 'SM', 'SWORDMASTER': 'SM',
+                    'MT': 'MT', 'TANK': 'MT',
+                    'ICE': 'ICE', 'ICE STACK': 'ICE',
+                    'ACRO': 'ACRO', 'ACROBAT': 'ACRO',
+                    'DPS': 'DPS'
+                };
+                const mappedRole = roleMap[roleInput] || roleInput;
+
+                const validRole = DEFAULT_ROLES.find(r => r.code === mappedRole);
+                if (!validRole) {
+                    return interaction.followUp({ content: `❌ Kode role **${roleInput}** tidak valid! Gunakan: FU, PR/Healer, MC, SM, MT, ICE, ACRO, atau DPS.`, flags: MessageFlags.Ephemeral });
+                }
+
+                // Resolve User ID dari Mention / Nickname / Digits
+                let resolvedUserId = inputUser;
+                const cleanDigits = inputUser.replace(/[<@!>]/g, '');
+                if (/^\d+$/.test(cleanDigits)) {
+                    resolvedUserId = cleanDigits;
+                } else if (interaction.guild) {
+                    const searchQuery = inputUser.replace(/^@/, '');
+                    try {
+                        const fetchedMembers = await interaction.guild.members.fetch({ query: searchQuery, limit: 1 });
+                        const foundMember = fetchedMembers.first();
+                        if (foundMember) resolvedUserId = foundMember.user.id;
+                    } catch (e) {}
+                }
+
+                const allSlots = db.prepare('SELECT * FROM party_recruit_slots WHERE party_id = ?').all(partyId);
+                const availableSlot = allSlots.find(s => s.role_code === mappedRole && s.user_id === null);
+
+                if (!availableSlot) {
+                    return interaction.followUp({ content: `❌ Slot role **${validRole.name}** sudah penuh!`, flags: MessageFlags.Ephemeral });
+                }
+
+                // Hapus user dari slot lama jika sudah ada di party ini
+                const existingUserSlot = allSlots.find(s => String(s.user_id) === String(resolvedUserId));
+                if (existingUserSlot) {
+                    db.prepare('UPDATE party_recruit_slots SET user_id = NULL, sub_job = NULL WHERE id = ?').run(existingUserSlot.id);
+                }
+
+                // Masukkan user ke slot baru
+                db.prepare('UPDATE party_recruit_slots SET user_id = ?, sub_job = ? WHERE id = ?').run(resolvedUserId, subJobInput, availableSlot.id);
+
+                const party = db.prepare('SELECT * FROM party_recruits WHERE id = ?').get(partyId);
+                if (party) {
+                    try {
+                        const channel = await client.channels.fetch(party.channel_id).catch(() => null);
+                        if (channel) {
+                            const message = await channel.messages.fetch(party.message_id).catch(() => null);
+                            if (message) {
+                                const panelData = await renderRecruitPanel(partyId);
+                                await message.edit(panelData);
+                            }
+                        }
+                    } catch (e) {}
+                }
+
+                return interaction.followUp({ content: `✅ <@${resolvedUserId}> berhasil ditambahkan sebagai **${validRole.name}**!`, flags: MessageFlags.Ephemeral });
+            }
 
             // HANDLER SUBMIT MODAL ITEM
             if (id.startsWith('modal_sal_item_')) {
