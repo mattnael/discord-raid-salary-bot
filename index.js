@@ -774,7 +774,7 @@ client.on('interactionCreate', async interaction => {
                     return await interaction.update(panelData);
                 }
 
-                // FITUR ADD MEMBER (HOST TAMBAH PLAYER MANUAL - LABEL UTAMA FIXED < 45 CHARS)
+                // FITUR ADD MEMBER (HOST TAMBAH PLAYER MANUAL)
                 if (id.startsWith('rec_add_member_')) {
                     const modal = new ModalBuilder()
                         .setCustomId(`modal_rec_add_member_${partyId}`)
@@ -788,7 +788,7 @@ client.on('interactionCreate', async interaction => {
 
                     const roleInput = new TextInputBuilder()
                         .setCustomId('role_code')
-                        .setLabel('Role / Posisi') // FIXED: < 45 Karakter!
+                        .setLabel('Role / Posisi')
                         .setPlaceholder('Contoh: FU, PR, MC, SM, MT, ICE, ACRO, atau DPS')
                         .setStyle(TextInputStyle.Short)
                         .setRequired(true);
@@ -838,7 +838,10 @@ client.on('interactionCreate', async interaction => {
                     return interaction.reply({ content: '⛔ **Pilih member untuk dikeluarkan dari party:**', components: [row], flags: MessageFlags.Ephemeral });
                 }
 
+                // FIX ANTI-TIMEOUT PADA BUTTON DONE
                 if (id.startsWith('rec_done_')) {
+                    await interaction.deferUpdate();
+
                     db.prepare("UPDATE party_recruits SET status = 'Done' WHERE id = ?").run(partyId);
 
                     const slots = db.prepare('SELECT DISTINCT user_id FROM party_recruit_slots WHERE party_id = ? AND user_id IS NOT NULL').all(partyId);
@@ -886,7 +889,7 @@ client.on('interactionCreate', async interaction => {
                     }
 
                     const panelData = await renderRecruitPanel(partyId);
-                    return await interaction.update(panelData);
+                    return await interaction.editReply(panelData);
                 }
 
                 if (id.startsWith('rec_cancel_run_')) {
