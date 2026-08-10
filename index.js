@@ -838,16 +838,22 @@ client.on('interactionCreate', async interaction => {
                     return interaction.reply({ content: '⛔ **Pilih member untuk dikeluarkan dari party:**', components: [row], flags: MessageFlags.Ephemeral });
                 }
 
-                // FIX ANTI-TIMEOUT PADA BUTTON DONE
+                // BUTTON DONE: EDIT PESAN DULUAN (TOMBOL LANGSUNG HILANG SEKETIKA), BARU BIKIN THREAD DI BACKGROUND
                 if (id.startsWith('rec_done_')) {
                     await interaction.deferUpdate();
 
+                    // 1. Update status party ke 'Done' di DB
                     db.prepare("UPDATE party_recruits SET status = 'Done' WHERE id = ?").run(partyId);
 
-                    const slots = db.prepare('SELECT DISTINCT user_id FROM party_recruit_slots WHERE party_id = ? AND user_id IS NOT NULL').all(partyId);
-                    const memberMentions = slots.map(s => `<@${s.user_id}>`).join(' ');
+                    // 2. Edit pesan recruitment seketika (tombol langsung hilang <100ms!)
+                    const panelData = await renderRecruitPanel(partyId);
+                    await interaction.editReply(panelData);
 
+                    // 3. Proses pembuatan thread & salary panel di background
                     try {
+                        const slots = db.prepare('SELECT DISTINCT user_id FROM party_recruit_slots WHERE party_id = ? AND user_id IS NOT NULL').all(partyId);
+                        const memberMentions = slots.map(s => `<@${s.user_id}>`).join(' ');
+
                         const config = db.prepare('SELECT salary_channel_id FROM server_configs WHERE guild_id = ?').get(interaction.guildId);
                         
                         let targetChannel = interaction.channel;
@@ -888,8 +894,7 @@ client.on('interactionCreate', async interaction => {
                         console.error('Gagal membuat thread / salary panel:', threadErr);
                     }
 
-                    const panelData = await renderRecruitPanel(partyId);
-                    return await interaction.editReply(panelData);
+                    return;
                 }
 
                 if (id.startsWith('rec_cancel_run_')) {
