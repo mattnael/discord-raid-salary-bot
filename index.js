@@ -314,7 +314,6 @@ async function renderRecruitPanel(partyId) {
 
     const isClosed = party.status === 'Done' || party.status === 'Cancelled';
 
-    // Jika Done / Cancelled, hilangkan semua tombol
     if (isClosed) {
         return { content: '', embeds: [embed], components: [] };
     }
@@ -345,10 +344,12 @@ async function renderRecruitPanel(partyId) {
         new ButtonBuilder().setCustomId(`rec_cancel_run_${partyId}`).setLabel('Cancel Run').setStyle(ButtonStyle.Danger).setEmoji('🗑️')
     );
 
+    // Row 5: Tambahan tombol Create Party Thread
     const row5 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`rec_add_member_${partyId}`).setLabel('Add Member').setStyle(ButtonStyle.Success).setEmoji('➕'),
         new ButtonBuilder().setCustomId(`rec_edit_title_${partyId}`).setLabel('Edit Title').setStyle(ButtonStyle.Secondary).setEmoji('✏️'),
-        new ButtonBuilder().setCustomId(`rec_notify_${partyId}`).setLabel('Notify Again').setStyle(ButtonStyle.Primary).setEmoji('📣')
+        new ButtonBuilder().setCustomId(`rec_notify_${partyId}`).setLabel('Notify Again').setStyle(ButtonStyle.Primary).setEmoji('📣'),
+        new ButtonBuilder().setCustomId(`rec_create_thread_${partyId}`).setLabel('Create Party Thread').setStyle(ButtonStyle.Primary).setEmoji('💬')
     );
 
     return { content: '@here', embeds: [embed], components: [row1, row2, row3, row4, row5], allowedMentions: { parse: ['everyone'] } };
@@ -767,6 +768,46 @@ client.on('interactionCreate', async interaction => {
                     return interaction.reply({ content: `❌ Hanya Host (<@${party.host_id}>) atau Co-Host yang dapat mengatur panel ini.`, flags: MessageFlags.Ephemeral });
                 }
 
+                // HANDLER TOMBOL BARU: CREATE PARTY THREAD (LANGSUNG DI BAWAH CHAT REKRUTMEN)
+                if (id.startsWith('rec_create_thread_')) {
+                    if (interaction.message.hasThread) {
+                        return interaction.reply({ 
+                            content: `❌ Thread room untuk party ini sudah ada: <#${interaction.message.thread.id}>`, 
+                            flags: MessageFlags.Ephemeral 
+                        });
+                    }
+
+                    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+                    try {
+                        const thread = await interaction.message.startThread({
+                            name: `${party.title} - Party Room`,
+                            autoArchiveDuration: 1440,
+                            reason: 'Party Room - Diskusi & Koordinasi Run'
+                        });
+
+                        const slots = db.prepare('SELECT DISTINCT user_id FROM party_recruit_slots WHERE party_id = ? AND user_id IS NOT NULL').all(partyId);
+                        const memberMentions = slots.map(s => `<@${s.user_id}>`).join(' ');
+
+                        if (slots.length > 0) {
+                            await thread.send(`🎮 **Thread Party Telah Dibuat!**\n\n**Roster Member:**\n${memberMentions}\n\nSilakan gunakan thread ini untuk koordinasi party run.`);
+                        } else {
+                            await thread.send(`🎮 **Thread Party Telah Dibuat!**\nSilakan gunakan thread ini untuk koordinasi party run.`);
+                        }
+
+                        return interaction.followUp({ 
+                            content: `✅ Party thread berhasil dibuat tepat di bawah pesan ini: <#${thread.id}>`, 
+                            flags: MessageFlags.Ephemeral 
+                        });
+                    } catch (err) {
+                        console.error('Gagal membuat thread party:', err);
+                        return interaction.followUp({ 
+                            content: `❌ Gagal membuat thread: ${err.message}`, 
+                            flags: MessageFlags.Ephemeral 
+                        });
+                    }
+                }
+
                 if (id.startsWith('rec_lock_')) {
                     const newStatus = party.status === 'Locked' ? 'Open' : 'Locked';
                     db.prepare('UPDATE party_recruits SET status = ? WHERE id = ?').run(newStatus, partyId);
@@ -838,18 +879,15 @@ client.on('interactionCreate', async interaction => {
                     return interaction.reply({ content: '⛔ **Pilih member untuk dikeluarkan dari party:**', components: [row], flags: MessageFlags.Ephemeral });
                 }
 
-                // BUTTON DONE: EDIT PESAN DULUAN (TOMBOL LANGSUNG HILANG SEKETIKA), BARU BIKIN THREAD DI BACKGROUND
+                // BUTTON DONE: TETAP BIKIN THREAD SALARY KAYA BIASANYA
                 if (id.startsWith('rec_done_')) {
                     await interaction.deferUpdate();
 
-                    // 1. Update status party ke 'Done' di DB
                     db.prepare("UPDATE party_recruits SET status = 'Done' WHERE id = ?").run(partyId);
 
-                    // 2. Edit pesan recruitment seketika (tombol langsung hilang <100ms!)
                     const panelData = await renderRecruitPanel(partyId);
                     await interaction.editReply(panelData);
 
-                    // 3. Proses pembuatan thread & salary panel di background
                     try {
                         const slots = db.prepare('SELECT DISTINCT user_id FROM party_recruit_slots WHERE party_id = ? AND user_id IS NOT NULL').all(partyId);
                         const memberMentions = slots.map(s => `<@${s.user_id}>`).join(' ');
