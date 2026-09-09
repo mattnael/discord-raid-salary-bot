@@ -17,7 +17,8 @@ const {
     StringSelectMenuOptionBuilder,
     MessageFlags,
     PermissionFlagsBits,
-    ChannelType
+    ChannelType,
+    Options
 } = require('discord.js');
 const Database = require('better-sqlite3');
 
@@ -152,6 +153,11 @@ const client = new Client({
         GatewayIntentBits.GuildMembers,
         GatewayIntentBits.MessageContent
     ],
+    makeCache: Options.cacheWithLimits({
+        MessageManager: 0,
+        GuildMemberManager: 10,
+        UserManager: 0
+    }),
     allowedMentions: {
         parse: ['everyone', 'roles', 'users'],
         repliedUser: true
