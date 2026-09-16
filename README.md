@@ -1,23 +1,23 @@
 # ⚔️ Discord Raid & Salary Bot
 
-Bot Discord untuk manajemen rekrutmen party raid (Dragon Nest / MMORPG) dan kalkulasi pembagian gaji (*salary distribution*) otomatis dengan pencatatan database SQLite persisten.
+Bot Discord untuk manajemen rekrutmen party raid (Dragon Nest / MMORPG) dan kalkulasi pembagian gaji (*salary distribution*) otomatis dengan pencatatan database SQLite.
 
 ---
 
 ## ✨ Fitur Utama
 
 * **Party Recruitment System (`/createparty`)**
-  * Roster 8 slot peran fleksibel (Force User, Healer, Mercenary, Swordmaster, Tank, Ice Stack, Acrobat, DPS)[cite: 2].
+  * 8 Party Member dengan Job yang fleksibel (Force User, Healer, Mercenary, Swordmaster, Tank, Ice Stack, Acrobat, DPS)[cite: 2].
   * Pemilihan *sub-class* / job spesifik untuk slot DPS via Dropdown & Modal teks[cite: 2].
-  * Buat room obrolan thread koordinasi langsung dari panel rekrutmen[cite: 2].
+  * Buat room obrolan berupa thread koordinasi langsung dari panel rekrutmen[cite: 2].
   * Manajemen Host: Kunci/Buka party (*Lock/Unlock*), tambah member manual, kick member, atau batalkan run[cite: 2].
-  * Tombol **Done** otomatis mengarsipkan roster dan membuat thread *Salary Panel* baru di channel khusus[cite: 2].
+  * Tombol **Done** otomatis mengarsipkan Party Member dan membuat thread *Salary Panel* baru di channel khusus[cite: 2].
 
 * **Salary & Earnings Panel (`/set-salary`)**
-  * Pencatatan *item loot* lelang (Belum Laku & Sudah Laku) dengan rekomendasi katalog otomatis (*autocomplete*)[cite: 2].
-  * Pencatatan pinjaman *Sealstamp Loan* dengan kustomisasi harga gold per stamp[cite: 2].
+  * Pencatatan *item loot* di trading house (Belum Laku & Sudah Laku) dengan rekomendasi katalog otomatis (*autocomplete*)[cite: 2].
+  * Pencatatan pinjaman *Sealstamp Loan* dengan harga seal stamp yang bisa di kustomisasi[cite: 2].
   * Pencatatan *Gold Drops* tambahan[cite: 2].
-  * Kalkulasi otomatis: Pajak/fee server (2%), kompensasi stamp, dan pembagian gaji pokok rata ke 8 player[cite: 2].
+  * Kalkulasi otomatis: Pajak/fee penjual barang (2%), kompensasi stamp, dan pembagian gaji pokok rata ke 8 player[cite: 2].
   * Checklist pelunasan gaji (**Mark Paid**) dengan multi-select dropdown[cite: 2].
   * Fitur penunjukan **Co-Host** untuk membantu pengelolaan panel[cite: 2].
 
