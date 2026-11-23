@@ -141,7 +141,7 @@ const DEFAULT_ROLES = [
     { code: 'SM', name: 'Swordmaster', slots: 1, emoji: '🗡️' },
     { code: 'MT', name: 'Tank', slots: 1, emoji: '🛡️' },
     { code: 'ICE', name: 'Ice Stack', slots: 1, emoji: '❄️' },
-    { code: 'ACRO', name: 'Acrobat', slots: 2, emoji: '🎯' },
+    { code: 'SB', name: 'SB', slots: 2, emoji: '🎯' },
     { code: 'DPS', name: 'DPS', slots: 3, emoji: '⚔️' }
 ];
 
@@ -233,8 +233,8 @@ function formatUser(userId) {
     return str;
 }
 
-// Helper Assign DPS Role
-async function assignDpsRole(interaction, partyId, jobName) {
+// Helper Assign Role dengan Sub-Job (DPS & SB)
+async function assignSubJobRole(interaction, partyId, roleCode, jobName) {
     const party = db.prepare('SELECT * FROM party_recruits WHERE id = ?').get(partyId);
     if (!party || party.status === 'Done' || party.status === 'Cancelled') {
         const msg = '🔒 Party ini sudah selesai atau dibatalkan.';
@@ -254,9 +254,13 @@ async function assignDpsRole(interaction, partyId, jobName) {
         return interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
     }
 
-    const availableSlot = allSlots.find(s => s.role_code === 'DPS' && s.user_id === null);
-    if (!availableSlot && (!existingUserSlot || existingUserSlot.role_code !== 'DPS')) {
-        const msg = '❌ Slot role **DPS** sudah penuh (Max 3 DPS)!';
+    const roleConfig = DEFAULT_ROLES.find(r => r.code === roleCode);
+    const maxSlots = roleConfig ? roleConfig.slots : 1;
+    const roleLabel = roleConfig ? roleConfig.name : roleCode;
+
+    const availableSlot = allSlots.find(s => s.role_code === roleCode && s.user_id === null);
+    if (!availableSlot && (!existingUserSlot || existingUserSlot.role_code !== roleCode)) {
+        const msg = `❌ Slot role **${roleLabel}** sudah penuh (Max ${maxSlots} ${roleLabel})!`;
         return interaction.deferred ? interaction.followUp({ content: msg, flags: MessageFlags.Ephemeral }) : interaction.reply({ content: msg, flags: MessageFlags.Ephemeral });
     }
 
@@ -264,7 +268,7 @@ async function assignDpsRole(interaction, partyId, jobName) {
         db.prepare('UPDATE party_recruit_slots SET user_id = NULL, sub_job = NULL WHERE id = ?').run(existingUserSlot.id);
     }
 
-    const targetSlotId = (existingUserSlot && existingUserSlot.role_code === 'DPS') ? existingUserSlot.id : availableSlot.id;
+    const targetSlotId = (existingUserSlot && existingUserSlot.role_code === roleCode) ? existingUserSlot.id : availableSlot.id;
     db.prepare('UPDATE party_recruit_slots SET user_id = ?, sub_job = ? WHERE id = ?').run(interaction.user.id, jobName, targetSlotId);
 
     const channel = await client.channels.fetch(party.channel_id);
@@ -272,7 +276,7 @@ async function assignDpsRole(interaction, partyId, jobName) {
     const panelData = await renderRecruitPanel(partyId);
     await message.edit(panelData);
 
-    const successMsg = `✅ Kamu berhasil join sebagai **DPS (${jobName})**!`;
+    const successMsg = `✅ Kamu berhasil join sebagai **${roleLabel} (${jobName})**!`;
     if (interaction.deferred) {
         return interaction.followUp({ content: successMsg, flags: MessageFlags.Ephemeral });
     } else {
@@ -334,7 +338,7 @@ async function renderRecruitPanel(partyId) {
     const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder().setCustomId(`rec_role_MT_${partyId}`).setLabel('Tank').setStyle(ButtonStyle.Primary).setEmoji('🛡️'),
         new ButtonBuilder().setCustomId(`rec_role_ICE_${partyId}`).setLabel('Ice Stack').setStyle(ButtonStyle.Primary).setEmoji('❄️'),
-        new ButtonBuilder().setCustomId(`rec_role_ACRO_${partyId}`).setLabel('Acrobat').setStyle(ButtonStyle.Primary).setEmoji('🎯'),
+        new ButtonBuilder().setCustomId(`rec_role_SB_${partyId}`).setLabel('SB').setStyle(ButtonStyle.Primary).setEmoji('🎯'),
         new ButtonBuilder().setCustomId(`rec_role_DPS_${partyId}`).setLabel('DPS').setStyle(ButtonStyle.Primary).setEmoji('⚔️')
     );
 
@@ -732,6 +736,23 @@ client.on('interactionCreate', async interaction => {
                         });
                     }
 
+                    if (roleCode === 'SB') {
+                        const selectMenu = new StringSelectMenuBuilder()
+                            .setCustomId(`select_rec_sb_job_${partyId}`)
+                            .setPlaceholder('Pilih Job SB kamu...')
+                            .addOptions([
+                                { label: 'Acrobat', value: 'Acrobat', emoji: '🎯' },
+                                { label: 'Saleana', value: 'Saleana', emoji: '🔥' }
+                            ]);
+
+                        const row = new ActionRowBuilder().addComponents(selectMenu);
+                        return interaction.reply({
+                            content: '🎯 **Pilih Job SB yang kamu pakai:**',
+                            components: [row],
+                            flags: MessageFlags.Ephemeral
+                        });
+                    }
+
                     const allSlots = db.prepare('SELECT * FROM party_recruit_slots WHERE party_id = ?').all(partyId);
                     const existingUserSlot = allSlots.find(s => String(s.user_id) === String(interaction.user.id));
                     const uniqueFilled = new Set(allSlots.filter(s => s.user_id !== null).map(s => s.user_id));
@@ -836,7 +857,7 @@ client.on('interactionCreate', async interaction => {
                     const roleInput = new TextInputBuilder()
                         .setCustomId('role_code')
                         .setLabel('Role / Posisi')
-                        .setPlaceholder('Contoh: FU, PR, MC, SM, MT, ICE, ACRO, atau DPS')
+                        .setPlaceholder('Contoh: FU, PR, MC, SM, MT, ICE, SB, atau DPS')
                         .setStyle(TextInputStyle.Short)
                         .setRequired(true);
 
@@ -844,7 +865,7 @@ client.on('interactionCreate', async interaction => {
                         .setCustomId('sub_job')
                         .setLabel('Sub-Job / Class (Opsional)')
                         .setStyle(TextInputStyle.Short)
-                        .setPlaceholder('Contoh: Crusader, Saleana, dll.')
+                        .setPlaceholder('Contoh: Acrobat, Saleana, Crusader, dll.')
                         .setRequired(false);
 
                     modal.addComponents(
@@ -1242,7 +1263,15 @@ client.on('interactionCreate', async interaction => {
                     return interaction.showModal(modal);
                 }
 
-                return await assignDpsRole(interaction, partyId, selectedJob);
+                return await assignSubJobRole(interaction, partyId, 'DPS', selectedJob);
+            }
+
+            if (interaction.customId.startsWith('select_rec_sb_job_')) {
+                const parts = interaction.customId.split('_');
+                const partyId = parseInt(parts[parts.length - 1]);
+                const selectedJob = interaction.values[0];
+
+                return await assignSubJobRole(interaction, partyId, 'SB', selectedJob);
             }
 
             if (interaction.customId.startsWith('select_rec_kick_')) {
@@ -1362,14 +1391,14 @@ client.on('interactionCreate', async interaction => {
                     'SM': 'SM', 'SWORDMASTER': 'SM',
                     'MT': 'MT', 'TANK': 'MT',
                     'ICE': 'ICE', 'ICE STACK': 'ICE',
-                    'ACRO': 'ACRO', 'ACROBAT': 'ACRO',
+                    'SB': 'SB', 'ACRO': 'SB', 'ACROBAT': 'SB',
                     'DPS': 'DPS'
                 };
                 const mappedRole = roleMap[roleInput] || roleInput;
 
                 const validRole = DEFAULT_ROLES.find(r => r.code === mappedRole);
                 if (!validRole) {
-                    return interaction.followUp({ content: `❌ Kode role **${roleInput}** tidak valid! Gunakan: FU, PR/Healer, MC, SM, MT, ICE, ACRO, atau DPS.`, flags: MessageFlags.Ephemeral });
+                    return interaction.followUp({ content: `❌ Kode role **${roleInput}** tidak valid! Gunakan: FU, PR/Healer, MC, SM, MT, ICE, SB, atau DPS.`, flags: MessageFlags.Ephemeral });
                 }
 
                 // Resolve User ID dari Mention / Nickname / Digits
@@ -1487,7 +1516,7 @@ client.on('interactionCreate', async interaction => {
                 const parts = id.split('_');
                 const partyId = parseInt(parts[parts.length - 1]);
                 const customJob = interaction.fields.getTextInputValue('custom_job_input').trim();
-                return await assignDpsRole(interaction, partyId, customJob);
+                return await assignSubJobRole(interaction, partyId, 'DPS', customJob);
             }
 
             if (id.startsWith('modal_rec_edit_title_')) {
