@@ -863,9 +863,10 @@ client.on('interactionCreate', async interaction => {
 
                     const subJobInput = new TextInputBuilder()
                         .setCustomId('sub_job')
-                        .setLabel('Sub-Job / Class (Opsional)')
+                        .setLabel('Sub-Job / Class (Opsional - Max 20 Huruf)')
                         .setStyle(TextInputStyle.Short)
                         .setPlaceholder('Contoh: Acrobat, Saleana, Crusader, dll.')
+                        .setMaxLength(20)
                         .setRequired(false);
 
                     modal.addComponents(
@@ -1255,9 +1256,10 @@ client.on('interactionCreate', async interaction => {
                         .setTitle('Input Class / Job DPS');
                     const input = new TextInputBuilder()
                         .setCustomId('custom_job_input')
-                        .setLabel('Nama Job DPS Kamu')
+                        .setLabel('Nama Job DPS Kamu (Max 20 Huruf)')
                         .setStyle(TextInputStyle.Short)
                         .setPlaceholder('Contoh: Bleed Phantom, Black Mara, dll.')
+                        .setMaxLength(20)
                         .setRequired(true);
                     modal.addComponents(new ActionRowBuilder().addComponents(input));
                     return interaction.showModal(modal);
@@ -1382,6 +1384,7 @@ client.on('interactionCreate', async interaction => {
                 let inputUser = interaction.fields.getTextInputValue('user_input').trim();
                 let roleInput = interaction.fields.getTextInputValue('role_code').trim().toUpperCase();
                 let subJobInput = interaction.fields.getTextInputValue('sub_job')?.trim() || null;
+                if (subJobInput) subJobInput = subJobInput.slice(0, 15);
 
                 // Mapping Alias Role Input Host ke Role Code DB
                 const roleMap = {
@@ -1515,7 +1518,7 @@ client.on('interactionCreate', async interaction => {
 
                 const parts = id.split('_');
                 const partyId = parseInt(parts[parts.length - 1]);
-                const customJob = interaction.fields.getTextInputValue('custom_job_input').trim();
+                const customJob = interaction.fields.getTextInputValue('custom_job_input').trim().slice(0, 20);
                 return await assignSubJobRole(interaction, partyId, 'DPS', customJob);
             }
 
